@@ -5,6 +5,7 @@ export { PortalError } from "./portal.js";
 export declare function createPortalAuth(config: PortalAuthConfig): {
     signInWithPortalToken: (ssoToken: string) => Promise<Session>;
     signInWithGoogle: (idToken: string) => Promise<Session>;
+    devSignIn: (email: string, name?: string) => Session;
     logout: (token: string) => void;
     requireAuth: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;
     requireAdmin: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;

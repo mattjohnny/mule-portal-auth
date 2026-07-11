@@ -176,6 +176,13 @@ export function createPortalAuth(config: PortalAuthConfig) {
     if (token) destroy(token);
   }
 
+  // Dev-only sign-in for running an app locally without Google / the Portal.
+  // Starts a local admin (ops) session. Callers MUST gate this on !isConfigured()
+  // so it is dead in production (where GOOGLE_CLIENT_ID is always set).
+  function devSignIn(email: string, name = "Dev Admin"): Session {
+    return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name));
+  }
+
   // --- Revalidation (§7 R1) -------------------------------------------------
   // Re-check a live session against the Portal, but at most once per revalidateMs.
   // Returns the (possibly refreshed) session, or null if the person is now signed
@@ -265,6 +272,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
   return {
     signInWithPortalToken,
     signInWithGoogle,
+    devSignIn,
     logout,
     requireAuth,
     requireAdmin,
