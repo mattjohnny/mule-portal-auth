@@ -248,6 +248,16 @@ export function createPortalAuth(config: PortalAuthConfig) {
     return ctx.locations.map((l) => l.id);
   }
 
+  // The location KEYS this person may see, or "all" for ops. Prefer this over
+  // locationIds when the app's own locations table is keyed by name (burlington,
+  // cambridge, …) — the Portal's numeric ids won't match the app's.
+  function locationKeys(src: Session | Context | PortalAuthedRequest): string[] | "all" {
+    const ctx = toContext(src);
+    if (!ctx) return [];
+    if (ctx.locations === "all") return "all";
+    return ctx.locations.map((l) => l.key);
+  }
+
   function getContext(src: Session | PortalAuthedRequest): Context | null {
     return toContext(src);
   }
@@ -261,6 +271,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
     revalidateIfStale,
     getContext,
     locationIds,
+    locationKeys,
     isConfigured: () => !!portalUrl && !!sharedKey,
     isAdminEmail: (email: string) => adminEmails.has((email || "").toLowerCase()),
   };

@@ -11,6 +11,7 @@ export declare function createPortalAuth(config: PortalAuthConfig): {
     revalidateIfStale: (session: Session) => Promise<Session | null>;
     getContext: (src: Session | PortalAuthedRequest) => Context | null;
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
+    locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
     isAdminEmail: (email: string) => boolean;
 };
