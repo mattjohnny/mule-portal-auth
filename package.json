@@ -1,0 +1,42 @@
+{
+  "name": "@mule/portal-auth",
+  "version": "0.1.0",
+  "description": "Shared Portal identity client for The Mule apps — redeem SSO, read role/location/app context, and revalidate against the Portal for revoke-now (identity-and-access.md §8).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "better-sqlite3": ">=11",
+    "express": ">=4",
+    "google-auth-library": ">=9"
+  },
+  "peerDependenciesMeta": {
+    "google-auth-library": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/express": "^5.0.0",
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0",
+    "google-auth-library": "^9.14.1",
+    "typescript": "^5.6.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
