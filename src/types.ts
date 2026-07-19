@@ -55,8 +55,9 @@ export interface PortalAuthConfig {
   googleClientId?: string;
   // Approved company domains for direct Google sign-in (e.g. ["themule.ca"]).
   allowedDomains?: string[];
-  // Local emails that are always admins even if the Portal is unreachable — the
-  // bootstrap admin (§10). Keep at least one.
+  // Local emails elevated to admin after the Portal confirms they are active.
+  // They receive outage-only break-glass access only when allowOfflineAdmin is
+  // enabled and the Portal is configured but temporarily unavailable.
   adminEmails?: string[];
   // How long a local session lives before it must be re-established (the §7
   // fallback TTL). Default 8h.
@@ -64,4 +65,12 @@ export interface PortalAuthConfig {
   // How often, at most, to re-check a live session against the Portal (§7 R1).
   // Default 5 minutes.
   revalidateMs?: number;
+  // Maximum time to wait for one Portal request before denying the protected
+  // request as temporarily unverifiable. Default 5 seconds.
+  portalRequestTimeoutMs?: number;
+  // Explicit outage-only break-glass option. When true, an ADMIN_EMAILS user
+  // may sign in or keep using cached context if a configured Portal is
+  // temporarily unavailable. Missing Portal configuration still denies access.
+  // Default false; a Portal reply that says the person is inactive signs out.
+  allowOfflineAdmin?: boolean;
 }

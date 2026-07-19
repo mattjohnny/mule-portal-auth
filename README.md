@@ -20,7 +20,7 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.1.0"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.1.3"
 }
 ```
 
@@ -76,11 +76,23 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 |---|---|---|
 | `sessionTtlMs` | `8h` | Fallback session lifetime (§7 belt-and-braces) |
 | `revalidateMs` | `5min` | Max time between Portal re-checks (§7 R1 SLA) |
-| `adminEmails` | `ADMIN_EMAILS` env | Bootstrap admins that work even if the Portal is unreachable (§10) |
+| `portalRequestTimeoutMs` | `5s` | Maximum wait for a Portal sign-in or context request |
+| `adminEmails` | `ADMIN_EMAILS` env | Local admin elevation after Portal confirms the person is active |
+| `allowOfflineAdmin` | `false` | Outage-only break glass for `ADMIN_EMAILS`; the Portal must still be configured |
 
-## Fail-open on Portal blips
+## Portal outages fail closed
 
-If the Portal is briefly unreachable during a re-check, the connector keeps
-serving the cached context and retries next request — the short session TTL is
-the backstop. A person is only signed out when the Portal *explicitly* says they
-are inactive.
+By default, if the Portal cannot be reached during a due re-check, the protected
+request is rejected with a retryable `503`. The local session is kept, its
+validation time is not advanced, and the next request tries again. This prevents
+stale access from surviving an outage while allowing service to resume without
+another login once the Portal can confirm the person. `allowOfflineAdmin` is the
+explicit exception for matching `ADMIN_EMAILS` users during a configured Portal
+outage; missing Portal configuration still denies access. Sessions created by a
+pre-provenance release, including sessions written by an older binary after a
+rollback, are forced through one successful Portal re-check before they can use
+that exception. A Portal response that
+marks the person inactive, or removes this app from their grants, destroys the
+session. Only network/timeouts, retryable `408`/`425`, and selected `5xx`
+responses qualify as an outage. `429` throttling, authentication failures, and
+malformed Portal responses remain fail-closed even when `allowOfflineAdmin` is enabled.

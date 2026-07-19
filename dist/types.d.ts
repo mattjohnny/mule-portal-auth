@@ -35,4 +35,6 @@ export interface PortalAuthConfig {
     adminEmails?: string[];
     sessionTtlMs?: number;
     revalidateMs?: number;
+    portalRequestTimeoutMs?: number;
+    allowOfflineAdmin?: boolean;
 }
