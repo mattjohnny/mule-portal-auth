@@ -297,6 +297,257 @@ export function createPortalAuth(config) {
         return ctx;
     }
 }
+// Async variant for stateless services whose sessions live in a shared
+// database. The synchronous SQLite connector above remains unchanged so
+// existing Mule apps do not need to migrate until they are ready.
+export function createPortalAuthAsync(config) {
+    const store = config.sessionStore;
+    const appName = config.appName;
+    const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
+    const sharedKey = (config.sharedKey ?? process.env.PORTAL_SHARED_KEY ?? "").trim();
+    const googleClientId = (config.googleClientId ?? process.env.GOOGLE_CLIENT_ID ?? "").trim();
+    const allowedDomains = (config.allowedDomains ?? envList("ALLOWED_DOMAINS")).map((d) => d.toLowerCase());
+    const adminEmails = new Set((config.adminEmails ?? envList("ADMIN_EMAILS")).map((e) => e.toLowerCase()));
+    const sessionTtlMs = config.sessionTtlMs ?? DEFAULT_TTL_MS;
+    const revalidateMs = config.revalidateMs ?? DEFAULT_REVALIDATE_MS;
+    const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
+    const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
+    const portal = { portalUrl, sharedKey, appName, requestTimeoutMs };
+    const ready = store.init();
+    async function startLocalSession(ctx, source = "portal") {
+        await ready;
+        const token = crypto.randomBytes(32).toString("hex");
+        const now = Date.now();
+        await store.insert({
+            token,
+            email: ctx.email,
+            name: ctx.name,
+            context: JSON.stringify(ctx),
+            created_at: now,
+            expires_at: now + sessionTtlMs,
+            last_validated: now,
+            source,
+        });
+        return { token, email: ctx.email, name: ctx.name, role: ctx.role, context: ctx };
+    }
+    function rowToSession(row) {
+        const ctx = JSON.parse(row.context);
+        return { token: row.token, email: row.email, name: row.name, role: ctx.role, context: ctx };
+    }
+    async function getRow(token) {
+        await ready;
+        const row = await store.get(token);
+        if (!row)
+            return null;
+        if (Date.now() > row.expires_at) {
+            await store.delete(token);
+            return null;
+        }
+        return row;
+    }
+    async function destroy(token) {
+        await ready;
+        await store.delete(token);
+    }
+    async function saveContext(token, ctx) {
+        await ready;
+        await store.updateContext(token, ctx, Date.now());
+    }
+    async function sweep() {
+        try {
+            await ready;
+            await store.sweep(Date.now());
+        }
+        catch {
+            /* ignore */
+        }
+    }
+    void sweep();
+    const sweepTimer = setInterval(() => void sweep(), 6 * 60 * 60 * 1000);
+    sweepTimer.unref?.();
+    async function signInWithPortalToken(ssoToken) {
+        if (!portalUrl || !sharedKey)
+            throw new PortalError("Portal sign-in isn't configured (missing PORTAL_URL / shared key).");
+        if (!ssoToken)
+            throw new PortalError("Missing sign-in token.");
+        const { context } = await redeemSso(portal, ssoToken);
+        const effective = applyBootstrapAdmin(context);
+        if (!effective.active || (!effective.is_admin && !effective.apps.includes(appName)))
+            throw new PortalError("You no longer have access to this app.", true);
+        return startLocalSession(effective, "portal");
+    }
+    async function signInWithGoogle(idToken) {
+        if (!googleClientId)
+            throw new PortalError("Google sign-in isn't configured.");
+        if (!idToken)
+            throw new PortalError("No sign-in token was received.");
+        if (!portalUrl || !sharedKey)
+            throw new PortalError("Portal access verification isn't configured.");
+        const { OAuth2Client } = await import("google-auth-library");
+        const client = new OAuth2Client(googleClientId);
+        let email = "";
+        let name = "";
+        try {
+            const ticket = await client.verifyIdToken({ idToken, audience: googleClientId });
+            const payload = ticket.getPayload();
+            if (!payload?.email)
+                throw new Error("no email");
+            if (!payload.email_verified)
+                throw new PortalError("That Google account's email isn't verified.");
+            email = payload.email.toLowerCase();
+            name = payload.name || payload.given_name || email;
+        }
+        catch (e) {
+            if (e instanceof PortalError)
+                throw e;
+            throw new PortalError("We couldn't verify that Google sign-in. Please try again.");
+        }
+        if (allowedDomains.length && !allowedDomains.includes(domainOf(email)))
+            throw new PortalError("That account isn't on an approved company domain.");
+        let ctx;
+        try {
+            ctx = await fetchContext(portal, email);
+        }
+        catch (error) {
+            if (allowOfflineAdmin &&
+                adminEmails.has(email) &&
+                error instanceof PortalError &&
+                error.unavailable) {
+                return startLocalSession(bootstrapAdminContext(email, name), "offline-admin");
+            }
+            throw new PortalError("Couldn't reach the Portal to confirm your access. Please try again.");
+        }
+        if (!ctx)
+            throw new PortalError("You don't have access to this app yet. Ask an admin in the Mule Portal.");
+        const effective = applyBootstrapAdmin(ctx);
+        if (!effective.is_admin && !effective.apps.includes(appName))
+            throw new PortalError("You haven't been given access to this app yet. Ask an admin in the Mule Portal.");
+        return startLocalSession(effective, "google");
+    }
+    async function logout(token) {
+        if (token)
+            await destroy(token);
+    }
+    async function devSignIn(email, name = "Dev Admin") {
+        return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name), "dev");
+    }
+    async function revalidateIfStale(session) {
+        const row = await getRow(session.token);
+        if (!row)
+            return null;
+        if (row.source !== "legacy" && Date.now() - row.last_validated < revalidateMs)
+            return rowToSession(row);
+        if (!portalUrl || !sharedKey) {
+            if (row.source === "dev")
+                return rowToSession(row);
+            throw new PortalError("Portal access verification isn't configured.");
+        }
+        let ctx;
+        try {
+            ctx = await fetchContext(portal, session.email);
+        }
+        catch (error) {
+            if (allowOfflineAdmin &&
+                adminEmails.has(session.email) &&
+                row.source !== "legacy" &&
+                error instanceof PortalError &&
+                error.unavailable)
+                return rowToSession(row);
+            throw error;
+        }
+        if (!ctx) {
+            await destroy(session.token);
+            return null;
+        }
+        const effective = applyBootstrapAdmin(ctx);
+        if (!effective.is_admin && !effective.apps.includes(appName)) {
+            await destroy(session.token);
+            return null;
+        }
+        await saveContext(session.token, effective);
+        return {
+            token: session.token,
+            email: effective.email,
+            name: effective.name,
+            role: effective.role,
+            context: effective,
+        };
+    }
+    function requireAuth(req, res, next) {
+        void (async () => {
+            try {
+                const token = bearer(req);
+                const row = token ? await getRow(token) : null;
+                if (!row) {
+                    res.status(401).json({ error: "Not signed in." });
+                    return;
+                }
+                const session = await revalidateIfStale(rowToSession(row));
+                if (!session) {
+                    res.status(401).json({ error: "Your access has been updated. Please sign in again." });
+                    return;
+                }
+                req.portal = session;
+                next();
+            }
+            catch {
+                res.setHeader("Cache-Control", "no-store");
+                res.setHeader("Retry-After", "5");
+                res.status(503).json({
+                    error: "We can't confirm your access with the Mule Portal right now. Please try again.",
+                });
+            }
+        })();
+    }
+    function requireAdmin(req, res, next) {
+        requireAuth(req, res, () => {
+            if (!req.portal?.context.is_admin) {
+                res.status(403).json({ error: "Admins only." });
+                return;
+            }
+            next();
+        });
+    }
+    function locationIds(src) {
+        const ctx = toContext(src);
+        if (!ctx)
+            return [];
+        if (ctx.locations === "all")
+            return "all";
+        return ctx.locations.map((l) => l.id);
+    }
+    function locationKeys(src) {
+        const ctx = toContext(src);
+        if (!ctx)
+            return [];
+        if (ctx.locations === "all")
+            return "all";
+        return ctx.locations.map((l) => l.key);
+    }
+    function getContext(src) {
+        return toContext(src);
+    }
+    return {
+        signInWithPortalToken,
+        signInWithGoogle,
+        devSignIn,
+        logout,
+        requireAuth,
+        requireAdmin,
+        revalidateIfStale,
+        getContext,
+        locationIds,
+        locationKeys,
+        isConfigured: () => !!portalUrl && !!sharedKey,
+        isAdminEmail: (email) => adminEmails.has((email || "").toLowerCase()),
+    };
+    function applyBootstrapAdmin(ctx) {
+        if (adminEmails.has(ctx.email) && !ctx.is_admin) {
+            return { ...ctx, role: "ops", is_admin: true, locations: "all" };
+        }
+        return ctx;
+    }
+}
 // --- module-level helpers ---------------------------------------------------
 function bearer(req) {
     const h = req.headers.authorization || "";

@@ -74,3 +74,29 @@ export interface PortalAuthConfig {
   // Default false; a Portal reply that says the person is inactive signs out.
   allowOfflineAdmin?: boolean;
 }
+
+export interface PortalSessionRow {
+  token: string;
+  email: string;
+  name: string;
+  context: string;
+  created_at: number;
+  expires_at: number;
+  last_validated: number;
+  source: string;
+}
+
+// Async session persistence for stateless apps (for example, a managed
+// Postgres database shared by overlapping Render instances).
+export interface PortalSessionStore {
+  init(): Promise<void>;
+  insert(row: PortalSessionRow): Promise<void>;
+  get(token: string): Promise<PortalSessionRow | null>;
+  delete(token: string): Promise<void>;
+  updateContext(token: string, context: Context, validatedAt: number): Promise<void>;
+  sweep(expiredBefore: number): Promise<void>;
+}
+
+export interface AsyncPortalAuthConfig extends Omit<PortalAuthConfig, "db"> {
+  sessionStore: PortalSessionStore;
+}

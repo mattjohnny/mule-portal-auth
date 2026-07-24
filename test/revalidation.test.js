@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import { OAuth2Client } from "google-auth-library";
-import { createPortalAuth, PortalError } from "../dist/index.js";
+import { createPortalAuth, createPortalAuthAsync, PortalError } from "../dist/index.js";
 
 const realFetch = globalThis.fetch;
 
@@ -64,6 +64,40 @@ function invoke(auth, token) {
       resolve({ next: true, status: res.statusCode, headers: responseHeaders, req });
     });
   });
+}
+
+function memorySessionStore() {
+  const rows = new Map();
+  return {
+    rows,
+    async init() {},
+    async insert(row) {
+      rows.set(row.token, { ...row });
+    },
+    async get(token) {
+      const row = rows.get(token);
+      return row ? { ...row } : null;
+    },
+    async delete(token) {
+      rows.delete(token);
+    },
+    async updateContext(token, value, validatedAt) {
+      const row = rows.get(token);
+      if (!row) return;
+      rows.set(token, {
+        ...row,
+        context: JSON.stringify(value),
+        name: value.name,
+        last_validated: validatedAt,
+        source: row.source === "legacy" ? "portal" : row.source,
+      });
+    },
+    async sweep(expiredBefore) {
+      for (const [token, row] of rows) {
+        if (row.expires_at < expiredBefore) rows.delete(token);
+      }
+    },
+  };
 }
 
 test("Portal revalidation fails closed and recovers without extending stale trust", async (t) => {
@@ -594,6 +628,36 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM portal_sessions").get().n, 0);
     db.close();
   });
+
+  globalThis.fetch = realFetch;
+});
+
+test("async session stores preserve revoke-now and hard-expiry behavior", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({
+    sessionStore,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 0,
+  });
+  const session = await auth.devSignIn("manager@themule.ca", "Manager");
+
+  globalThis.fetch = async () => jsonResponse(context({ ctx_version: 7 }));
+  const refreshed = await invoke(auth, session.token);
+  assert.equal(refreshed.next, true);
+  assert.equal(refreshed.req.portal.context.ctx_version, 7);
+
+  globalThis.fetch = async () => jsonResponse(context({ apps: [] }));
+  const revoked = await invoke(auth, session.token);
+  assert.equal(revoked.status, 401);
+  assert.equal(sessionStore.rows.size, 0);
+
+  const expiring = await auth.devSignIn("manager@themule.ca", "Manager");
+  sessionStore.rows.get(expiring.token).expires_at = 0;
+  const expired = await invoke(auth, expiring.token);
+  assert.equal(expired.status, 401);
+  assert.equal(sessionStore.rows.size, 0);
 
   globalThis.fetch = realFetch;
 });
