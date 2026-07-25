@@ -25,8 +25,41 @@ export interface PortalClientOpts {
   requestTimeoutMs: number;
 }
 
-function requestSignal(timeoutMs: number): AbortSignal {
-  return AbortSignal.timeout(timeoutMs);
+/**
+ * A bounded-request signal whose timer keeps the event loop alive.
+ *
+ * `AbortSignal.timeout()` is unref'd by design — Node documents that its timer does
+ * not hold the loop open. So if a Portal request is the only outstanding work, the
+ * loop drains, the timeout never fires, and the request becomes unbounded. That is
+ * the exact opposite of the fail-closed guarantee this module exists to provide.
+ *
+ * Inside a running server the listening socket masks it, which is why this went
+ * unnoticed. Under `node --test` nothing else holds the loop, and the
+ * "a hung Portal request is bounded and denied" test hung forever on CI while
+ * passing locally.
+ *
+ * Callers MUST invoke `done()` when the request finishes, or the ref'd timer keeps
+ * the process alive for up to `timeoutMs`.
+ */
+function requestSignal(timeoutMs: number): { signal: AbortSignal; done: () => void } {
+  // AbortSignal.timeout() was doing double duty: bounding the request AND rejecting a
+  // nonsensical timeout. setTimeout() does not — it clamps a negative delay to 1ms and
+  // carries on. Without this guard an invalid `portalRequestTimeoutMs` would stop being
+  // a local configuration error and start looking like a retryable Portal outage, which
+  // is precisely what can activate outage-only admin access. Validate explicitly, and
+  // throw the same TypeError the platform did so callers classify it unchanged.
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new TypeError(
+      `Portal request timeout must be a non-negative number of milliseconds; received ${timeoutMs}.`
+    );
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    );
+  }, timeoutMs);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
 }
 
 function portalEndpoint(portalUrl: string, path: string): URL {
@@ -109,41 +142,47 @@ export async function redeemSso(
   // they can never activate outage-only admin access.
   const endpoint = portalEndpoint(opts.portalUrl, "/api/redeem-sso").toString();
   const headers = new Headers({ "Content-Type": "application/json", "x-portal-key": opts.sharedKey });
-  const signal = requestSignal(opts.requestTimeoutMs);
-  let resp: Response;
+  const { signal, done } = requestSignal(opts.requestTimeoutMs);
+  // The timeout stays armed until this function returns, so a slow body read is
+  // bounded too — same scope as the previous AbortSignal.timeout().
   try {
-    resp = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ token: ssoToken, app: opts.appName }),
-      signal,
-    });
-  } catch {
-    throw new PortalError("Couldn't reach the Portal to complete sign-in.", false, true);
-  }
-  if (resp.status === 403) throw new PortalError("That account has been disabled.", true);
-  if (!resp.ok) {
-    const unavailable = unavailableForStatus(resp.status);
-    throw new PortalError(
-      unavailable
-        ? "The Portal is temporarily unavailable. Please try again."
-        : "That sign-in link is invalid or has expired.",
-      false,
-      unavailable
-    );
-  }
+    let resp: Response;
+    try {
+      resp = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ token: ssoToken, app: opts.appName }),
+        signal,
+      });
+    } catch {
+      throw new PortalError("Couldn't reach the Portal to complete sign-in.", false, true);
+    }
+    if (resp.status === 403) throw new PortalError("That account has been disabled.", true);
+    if (!resp.ok) {
+      const unavailable = unavailableForStatus(resp.status);
+      throw new PortalError(
+        unavailable
+          ? "The Portal is temporarily unavailable. Please try again."
+          : "That sign-in link is invalid or has expired.",
+        false,
+        unavailable
+      );
+    }
 
-  let body: { email?: string; name?: string; role?: string; context?: Context };
-  try {
-    body = (await resp.json()) as typeof body;
-  } catch {
-    throw new PortalError("The Portal returned an invalid sign-in response.");
+    let body: { email?: string; name?: string; role?: string; context?: Context };
+    try {
+      body = (await resp.json()) as typeof body;
+    } catch {
+      throw new PortalError("The Portal returned an invalid sign-in response.");
+    }
+    if (!body?.email) throw new PortalError("The Portal didn't return a valid account.");
+    if (!body.context)
+      throw new PortalError("The Portal didn't return current access details.");
+    const context = validateActiveContext(body.context, body.email);
+    return { email: body.email, name: body.name || body.email, role: body.role || "user", context };
+  } finally {
+    done();
   }
-  if (!body?.email) throw new PortalError("The Portal didn't return a valid account.");
-  if (!body.context)
-    throw new PortalError("The Portal didn't return current access details.");
-  const context = validateActiveContext(body.context, body.email);
-  return { email: body.email, name: body.name || body.email, role: body.role || "user", context };
 }
 
 // Fetch the current context for a person by email (the re-fetchable read used at
@@ -156,33 +195,38 @@ export async function fetchContext(
   const endpoint = portalEndpoint(opts.portalUrl, "/api/context");
   endpoint.searchParams.set("email", email);
   const headers = new Headers({ "x-portal-key": opts.sharedKey });
-  const signal = requestSignal(opts.requestTimeoutMs);
-  let resp: Response;
+  const { signal, done } = requestSignal(opts.requestTimeoutMs);
+  // Armed until return, so the body read is bounded too.
   try {
-    resp = await fetch(endpoint, { headers, signal });
-  } catch {
-    throw new PortalError("Couldn't reach the Portal.", false, true);
+    let resp: Response;
+    try {
+      resp = await fetch(endpoint, { headers, signal });
+    } catch {
+      throw new PortalError("Couldn't reach the Portal.", false, true);
+    }
+    if (!resp.ok) {
+      const unavailable = unavailableForStatus(resp.status);
+      throw new PortalError(
+        unavailable
+          ? "The Portal is temporarily unavailable."
+          : "Portal rejected the context request.",
+        false,
+        unavailable
+      );
+    }
+    let body: unknown;
+    try {
+      body = await resp.json();
+    } catch {
+      throw new PortalError("The Portal returned an invalid context response.");
+    }
+    if (isObject(body) && body.active === false) {
+      if (typeof body.email === "string" && body.email.toLowerCase() === email.toLowerCase())
+        return null;
+      throw new PortalError("The Portal returned an invalid context response.");
+    }
+    return validateActiveContext(body, email);
+  } finally {
+    done();
   }
-  if (!resp.ok) {
-    const unavailable = unavailableForStatus(resp.status);
-    throw new PortalError(
-      unavailable
-        ? "The Portal is temporarily unavailable."
-        : "Portal rejected the context request.",
-      false,
-      unavailable
-    );
-  }
-  let body: unknown;
-  try {
-    body = await resp.json();
-  } catch {
-    throw new PortalError("The Portal returned an invalid context response.");
-  }
-  if (isObject(body) && body.active === false) {
-    if (typeof body.email === "string" && body.email.toLowerCase() === email.toLowerCase())
-      return null;
-    throw new PortalError("The Portal returned an invalid context response.");
-  }
-  return validateActiveContext(body, email);
 }
