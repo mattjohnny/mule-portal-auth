@@ -1,7 +1,9 @@
 import type { Response, NextFunction } from "express";
 import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, Session } from "./types.js";
 export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
+export type { PortalCredentialProvider, PortalCredentialStage, PortalServiceCredential, } from "./types.js";
 export { PortalError } from "./portal.js";
+export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./credentials.js";
 export declare function createPortalAuth(config: PortalAuthConfig): {
     signInWithPortalToken: (ssoToken: string) => Promise<Session>;
     signInWithGoogle: (idToken: string) => Promise<Session>;
@@ -11,9 +13,11 @@ export declare function createPortalAuth(config: PortalAuthConfig): {
     requireAdmin: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;
     revalidateIfStale: (session: Session) => Promise<Session | null>;
     getContext: (src: Session | PortalAuthedRequest) => Context | null;
+    readAppDirectory: () => Promise<unknown>;
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
+    close: () => void;
     isAdminEmail: (email: string) => boolean;
 };
 export declare function createPortalAuthAsync(config: AsyncPortalAuthConfig): {
@@ -25,8 +29,10 @@ export declare function createPortalAuthAsync(config: AsyncPortalAuthConfig): {
     requireAdmin: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;
     revalidateIfStale: (session: Session) => Promise<Session | null>;
     getContext: (src: Session | PortalAuthedRequest) => Context | null;
+    readAppDirectory: () => Promise<unknown>;
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
+    close: () => void;
     isAdminEmail: (email: string) => boolean;
 };

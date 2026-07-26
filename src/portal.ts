@@ -1,7 +1,11 @@
-import type { Context } from "./types.js";
+import type {
+  Context,
+  PortalCredentialProvider,
+  PortalServiceCredential,
+} from "./types.js";
 
-// Thin HTTP client for the two Portal service endpoints this connector uses.
-// Both are authenticated with the shared service key (x-portal-key), not a user
+// Thin HTTP client for the Portal service endpoints this connector uses.
+// Production uses an app-bound rotating credential. x-portal-key remains only
 // session — see the Portal's /api/redeem-sso and /api/context.
 
 export class PortalError extends Error {
@@ -20,9 +24,181 @@ export class PortalError extends Error {
 
 export interface PortalClientOpts {
   portalUrl: string;
-  sharedKey: string;
   appName: string;
   requestTimeoutMs: number;
+  serviceAuth: PortalServiceAuth;
+}
+
+export class PortalServiceAuth {
+  private readonly provenCredentials = new Set<string>();
+  private readonly proofTimer?: ReturnType<typeof setInterval>;
+  private static readonly PROOF_TIMEOUT_MS = 5_000;
+
+  constructor(
+    private readonly provider: PortalCredentialProvider | undefined,
+    private readonly legacyKey: string,
+    private readonly portalUrl: string,
+    private readonly refreshMs: number
+  ) {
+    if (provider?.configured()) {
+      void this.proveCredentials().catch(() => undefined);
+      this.proofTimer = setInterval(
+        () => void this.proveCredentials().catch(() => undefined),
+        refreshMs
+      );
+      this.proofTimer.unref?.();
+    }
+  }
+
+  configured(): boolean {
+    return !!this.legacyKey || !!this.provider?.configured();
+  }
+
+  hasCredentialProvider(): boolean {
+    return !!this.provider?.configured();
+  }
+
+  hasLegacyFallback(): boolean {
+    return !!this.legacyKey;
+  }
+
+  close(): void {
+    if (this.proofTimer) clearInterval(this.proofTimer);
+    this.provider?.close?.();
+  }
+
+  async request(
+    endpoint: string,
+    init: RequestInit,
+    mode: "normal" | "legacy-only" = "normal"
+  ): Promise<Response> {
+    if (mode === "legacy-only") {
+      if (!this.legacyKey) throw new PortalError("Legacy Portal authentication is unavailable.");
+      return fetch(endpoint, this.withLegacy(init));
+    }
+    if (!this.provider?.configured()) {
+      if (this.legacyKey) return fetch(endpoint, this.withLegacy(init));
+      throw new PortalError("Portal service authentication isn't configured.");
+    }
+
+    let lastUnauthorized: Response | undefined;
+    const attempted = new Set<string>();
+    for (const forceRefresh of [false, true]) {
+      let credentials: PortalServiceCredential[];
+      try {
+        credentials = await this.candidates(forceRefresh);
+      } catch (error) {
+        // Migration fallback is for a provider outage only. Once Portal has
+        // explicitly rejected any app credential, fail closed so revoke-now
+        // cannot be bypassed by the still-configured shared key.
+        if (attempted.size === 0 && this.legacyKey) {
+          return fetch(endpoint, this.withLegacy(init));
+        }
+        if (lastUnauthorized) return lastUnauthorized;
+        throw error;
+      }
+      for (const credential of credentials) {
+        if (attempted.has(credential.credentialId)) continue;
+        attempted.add(credential.credentialId);
+        const response = await fetch(endpoint, this.withCredential(init, credential));
+        if (response.status !== 401) return response;
+        // A pending credential can be visible in Secrets Manager before the
+        // controller's setSecret step registers it with Portal. A 401 therefore
+        // falls through to AWSCURRENT instead of interrupting authentication.
+        await discardResponse(response);
+        lastUnauthorized = response;
+      }
+    }
+    if (lastUnauthorized) return lastUnauthorized;
+    if (attempted.size === 0 && this.legacyKey) {
+      return fetch(endpoint, this.withLegacy(init));
+    }
+    throw new PortalError("Portal service authentication isn't configured.");
+  }
+
+  private async candidates(forceRefresh: boolean): Promise<PortalServiceCredential[]> {
+    if (!this.provider?.configured()) return [];
+    const all = await this.provider.getCredentials(forceRefresh);
+    const pending = all.find(
+      (credential) =>
+        credential.stage === "AWSPENDING" &&
+        this.provenCredentials.has(credential.credentialId)
+    );
+    const current = all.find((credential) => credential.stage === "AWSCURRENT");
+    return [pending, current].filter(
+      (credential): credential is PortalServiceCredential => !!credential
+    );
+  }
+
+  private withCredential(
+    init: RequestInit,
+    credential: PortalServiceCredential
+  ): RequestInit {
+    const headers = new Headers(init.headers);
+    headers.delete("x-portal-key");
+    headers.set(
+      "Authorization",
+      `PortalCredential ${credential.credentialId}.${credential.secret}`
+    );
+    return { ...init, headers };
+  }
+
+  private withLegacy(init: RequestInit): RequestInit {
+    const headers = new Headers(init.headers);
+    headers.delete("Authorization");
+    headers.set("x-portal-key", this.legacyKey);
+    return { ...init, headers };
+  }
+
+  private async proveCredentials(): Promise<void> {
+    if (!this.provider?.configured()) return;
+    const credentials = await this.provider.getCredentials();
+    const endpoint = portalEndpoint(this.portalUrl, "/api/credential-proof").toString();
+    for (const credential of credentials) {
+      if (this.provenCredentials.has(credential.credentialId)) continue;
+      let response: Response;
+      const { signal, done } = requestSignal(
+        PortalServiceAuth.PROOF_TIMEOUT_MS
+      );
+      try {
+        response = await fetch(
+          endpoint,
+          this.withCredential({ method: "POST", signal }, credential)
+        );
+      } catch {
+        done();
+        continue;
+      }
+      done();
+      if (response.ok) {
+        this.provenCredentials.add(credential.credentialId);
+        await discardResponse(response);
+        continue;
+      }
+      // 401 is the expected createSecret -> setSecret race. Keep current active
+      // and try again on the next refresh tick.
+      if (response.status !== 401) {
+        console.warn(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "warn",
+            event: "portal_credential_proof_failed",
+            stage: credential.stage,
+            status: response.status,
+          })
+        );
+      }
+      await discardResponse(response);
+    }
+  }
+}
+
+async function discardResponse(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The response is already closed; there is nothing left to release.
+  }
 }
 
 /**
@@ -136,19 +312,25 @@ function validateActiveContext(value: unknown, expectedEmail: string): Context {
 export async function redeemSso(
   opts: PortalClientOpts,
   ssoToken: string
-): Promise<{ email: string; name: string; role: string; context: Context }> {
+): Promise<{
+  email: string;
+  name: string;
+  role: string;
+  context: Context;
+  revalidationHandle: string;
+}> {
   // Constructing the URL, headers, or timeout signal can fail because of bad
   // local configuration. Keep those failures outside the network-error catch so
   // they can never activate outage-only admin access.
   const endpoint = portalEndpoint(opts.portalUrl, "/api/redeem-sso").toString();
-  const headers = new Headers({ "Content-Type": "application/json", "x-portal-key": opts.sharedKey });
+  const headers = new Headers({ "Content-Type": "application/json" });
   const { signal, done } = requestSignal(opts.requestTimeoutMs);
   // The timeout stays armed until this function returns, so a slow body read is
   // bounded too — same scope as the previous AbortSignal.timeout().
   try {
     let resp: Response;
     try {
-      resp = await fetch(endpoint, {
+      resp = await opts.serviceAuth.request(endpoint, {
         method: "POST",
         headers,
         body: JSON.stringify({ token: ssoToken, app: opts.appName }),
@@ -169,7 +351,13 @@ export async function redeemSso(
       );
     }
 
-    let body: { email?: string; name?: string; role?: string; context?: Context };
+    let body: {
+      email?: string;
+      name?: string;
+      role?: string;
+      context?: Context;
+      revalidation_handle?: string;
+    };
     try {
       body = (await resp.json()) as typeof body;
     } catch {
@@ -178,8 +366,16 @@ export async function redeemSso(
     if (!body?.email) throw new PortalError("The Portal didn't return a valid account.");
     if (!body.context)
       throw new PortalError("The Portal didn't return current access details.");
+    if (!body.revalidation_handle && opts.serviceAuth.hasCredentialProvider())
+      throw new PortalError("The Portal didn't return a revalidation handle.");
     const context = validateActiveContext(body.context, body.email);
-    return { email: body.email, name: body.name || body.email, role: body.role || "user", context };
+    return {
+      email: body.email,
+      name: body.name || body.email,
+      role: body.role || "user",
+      context,
+      revalidationHandle: body.revalidation_handle || "",
+    };
   } finally {
     done();
   }
@@ -190,17 +386,32 @@ export async function redeemSso(
 // person is signed out (inactive / unknown) so the caller can end the session.
 export async function fetchContext(
   opts: PortalClientOpts,
+  revalidationHandle: string | undefined,
   email: string
 ): Promise<Context | null> {
   const endpoint = portalEndpoint(opts.portalUrl, "/api/context");
-  endpoint.searchParams.set("email", email);
-  const headers = new Headers({ "x-portal-key": opts.sharedKey });
+  const useHandle = !!revalidationHandle && opts.serviceAuth.hasCredentialProvider();
+  if (!useHandle) endpoint.searchParams.set("email", email);
+  const headers = new Headers(
+    useHandle ? { "Content-Type": "application/json" } : undefined
+  );
   const { signal, done } = requestSignal(opts.requestTimeoutMs);
   // Armed until return, so the body read is bounded too.
   try {
     let resp: Response;
     try {
-      resp = await fetch(endpoint, { headers, signal });
+      resp = await opts.serviceAuth.request(
+        endpoint.toString(),
+        useHandle
+          ? {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ handle: revalidationHandle }),
+              signal,
+            }
+          : { headers, signal },
+        useHandle ? "normal" : "legacy-only"
+      );
     } catch {
       throw new PortalError("Couldn't reach the Portal.", false, true);
     }
@@ -226,6 +437,38 @@ export async function fetchContext(
       throw new PortalError("The Portal returned an invalid context response.");
     }
     return validateActiveContext(body, email);
+  } finally {
+    done();
+  }
+}
+
+export async function fetchAppDirectory(opts: PortalClientOpts): Promise<unknown> {
+  const endpoint = portalEndpoint(opts.portalUrl, "/api/app-directory");
+  // The query is required only by the legacy fallback. Portal ignores it as
+  // an authority source for app credentials and verifies that it matches.
+  endpoint.searchParams.set("app", opts.appName);
+  const { signal, done } = requestSignal(opts.requestTimeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await opts.serviceAuth.request(endpoint.toString(), { signal });
+    } catch {
+      throw new PortalError("Couldn't reach the Portal directory.", false, true);
+    }
+    if (!response.ok) {
+      throw new PortalError(
+        unavailableForStatus(response.status)
+          ? "The Portal directory is temporarily unavailable."
+          : "Portal rejected the directory request.",
+        false,
+        unavailableForStatus(response.status)
+      );
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw new PortalError("The Portal returned an invalid directory response.");
+    }
   } finally {
     done();
   }
