@@ -48,7 +48,14 @@ export interface PortalServiceCredential {
 
 export interface PortalCredentialProvider {
   configured(): boolean;
-  getCredentials(forceRefresh?: boolean): Promise<PortalServiceCredential[]>;
+  // The caller's request deadline covers credential discovery as well as the
+  // Portal HTTP request. Providers should abort remote work when this signal
+  // fires; the optional argument preserves compatibility with existing
+  // injected providers.
+  getCredentials(
+    forceRefresh?: boolean,
+    signal?: AbortSignal
+  ): Promise<PortalServiceCredential[]>;
   close?(): void;
 }
 
@@ -87,8 +94,9 @@ export interface PortalAuthConfig {
   googleClientId?: string;
   // Approved company domains for direct Google sign-in (e.g. ["themule.ca"]).
   allowedDomains?: string[];
-  // Local emails elevated to admin after the Portal confirms they are active.
-  // They receive outage-only break-glass access only when allowOfflineAdmin is
+  // Local emails eligible for outage-only break-glass access. A successful
+  // Portal response is always authoritative and is never elevated by this
+  // list. Cached/offline access is possible only when allowOfflineAdmin is
   // enabled and the Portal is configured but temporarily unavailable.
   adminEmails?: string[];
   // How long a local session lives before it must be re-established (the §7
@@ -126,7 +134,15 @@ export interface PortalSessionStore {
   insert(row: PortalSessionRow): Promise<void>;
   get(token: string): Promise<PortalSessionRow | null>;
   delete(token: string): Promise<void>;
-  updateContext(token: string, context: Context, validatedAt: number): Promise<void>;
+  // `source` is optional for backward compatibility with existing stores.
+  // Stores that persist it let pre-v0.2.2 sessions pay one forced live recheck;
+  // stores that ignore it remain fail-closed and recheck those rows until expiry.
+  updateContext(
+    token: string,
+    context: Context,
+    validatedAt: number,
+    source?: string
+  ): Promise<void>;
   sweep(expiredBefore: number): Promise<void>;
 }
 

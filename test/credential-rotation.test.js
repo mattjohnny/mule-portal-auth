@@ -222,11 +222,13 @@ test("an empty configured provider fails closed instead of using the legacy key"
 test("a legacy-only configuration still authenticates with the shared key", async () => {
   const originalFetch = globalThis.fetch;
   const seen = [];
-  globalThis.fetch = async (_url, init) => {
+  globalThis.fetch = async (url, init) => {
     const headers = new Headers(init?.headers);
     seen.push({
       credential: headers.get("authorization"),
       legacy: headers.get("x-portal-key"),
+      app: headers.get("x-portal-app"),
+      path: new URL(String(url)).pathname,
     });
     return ssoResponse();
   };
@@ -241,8 +243,102 @@ test("a legacy-only configuration still authenticates with the shared key", asyn
   try {
     await auth.signInWithPortalToken("legacy-only-token");
     assert.deepEqual(seen, [
-      { credential: null, legacy: "migration-only-key" },
+      {
+        credential: null,
+        legacy: "migration-only-key",
+        app: "example-app",
+        path: "/api/redeem-sso",
+      },
     ]);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a hung cold-cache credential lookup is bounded by the Portal request deadline", async () => {
+  const originalFetch = globalThis.fetch;
+  const providerSignals = [];
+  let providerCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (new URL(String(url)).pathname === "/api/credential-proof") {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error("Portal fetch must not start before credential lookup completes");
+  };
+  const credentialProvider = {
+    configured: () => true,
+    async getCredentials(_forceRefresh, signal) {
+      providerCalls += 1;
+      providerSignals.push(signal);
+      // The constructor's background proof gets a usable current credential.
+      if (providerCalls === 1) return [{ ...current }];
+      return new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(signal.reason),
+          { once: true }
+        );
+      });
+    },
+  };
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    credentialProvider,
+    portalRequestTimeoutMs: 15,
+    credentialRefreshMs: 60_000,
+  });
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => auth.signInWithPortalToken("cold-cache-token"),
+      /Couldn't reach the Portal to complete sign-in/
+    );
+    assert.ok(Date.now() - startedAt < 500, "credential lookup exceeded its request deadline");
+    assert.ok(providerSignals[0] instanceof AbortSignal, "proof lookup did not receive a deadline");
+    assert.equal(providerSignals.at(-1).aborted, true);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the request deadline bounds a legacy provider that ignores abort signals", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("Portal fetch must not start before credential lookup completes");
+  };
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    credentialProvider: {
+      configured: () => true,
+      async getCredentials() {
+        return new Promise(() => {});
+      },
+    },
+    portalRequestTimeoutMs: 15,
+    credentialRefreshMs: 60_000,
+  });
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => auth.signInWithPortalToken("ignoring-provider-token"),
+      /Couldn't reach the Portal to complete sign-in/
+    );
+    assert.ok(Date.now() - startedAt < 500, "legacy provider escaped the request deadline");
   } finally {
     auth.close();
     db.close();

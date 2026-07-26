@@ -21,7 +21,7 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.1"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.2"
 }
 ```
 
@@ -82,7 +82,7 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 | `awsRegion` | `AWS_REGION` | Region containing the app credential |
 | `credentialRefreshMs` | `60s` | Refresh stages and synthetically prove pending credentials |
 | `googleClientId` | `GOOGLE_CLIENT_ID` | Enables legacy direct Google sign-in only before app-bound credential migration |
-| `adminEmails` | `ADMIN_EMAILS` env | Local admin elevation after Portal confirms the person is active |
+| `adminEmails` | `ADMIN_EMAILS` env | Emails eligible for explicit outage-only break glass; never overrides a successful Portal role or app decision |
 | `allowOfflineAdmin` | `false` | Outage-only break glass for `ADMIN_EMAILS`; the Portal must still be configured |
 
 ## Rotating app credentials
@@ -95,6 +95,13 @@ and `PORTAL_CREDENTIAL_SECRET_ARN`.
 The connector refreshes `AWSCURRENT` and `AWSPENDING` in the background. It
 synthetically proves new credentials even when the app has no user traffic,
 uses a proven pending credential first, and falls back to `AWSCURRENT` on 401.
+The configured Portal request timeout covers Secrets Manager credential loading,
+the Portal request, and its response body; a cold or refreshing AWS lookup cannot
+extend that deadline. The caller enforces the bound even for an older injected
+provider that ignores `AbortSignal`. Coalesced AWS loads use a group-owned abort
+signal, so one request timing out cannot cancel another live waiter. Legacy
+shared-key requests include the app claim for
+migration telemetry, but the Portal never treats that claim as authorization.
 During migration, `PORTAL_SHARED_KEY` still supports legacy-only deployments
 that have no credential provider. Once `credentialSecretArn` or an injected
 provider is configured, normal service requests never fall back to the shared
@@ -119,10 +126,15 @@ stale access from surviving an outage while allowing service to resume without
 another login once the Portal can confirm the person. `allowOfflineAdmin` is the
 explicit exception for matching `ADMIN_EMAILS` users during a configured Portal
 outage; missing Portal configuration still denies access. Sessions created by a
-pre-provenance release, including sessions written by an older binary after a
-rollback, are forced through one successful Portal re-check before they can use
-that exception. A Portal response that
+pre-provenance release, including `portal`/`google` rows from v0.2.1 and sessions
+written by an older binary after a rollback, are forced through one successful
+Portal re-check before they can use that exception. The successful check marks
+the row `portal-v2`; known async stores persist the same marker, while an older
+store that ignores the optional marker remains safe by rechecking until expiry.
+A Portal response that
 marks the person inactive, or removes this app from their grants, destroys the
-session. Only network/timeouts, retryable `408`/`425`, and selected `5xx`
+session. A successful Portal response always controls role, admin status,
+locations, and app grants; `ADMIN_EMAILS` never elevates it. Only
+network/timeouts, retryable `408`/`425`, and selected `5xx`
 responses qualify as an outage. `429` throttling, authentication failures, and
 malformed Portal responses remain fail-closed even when `allowOfflineAdmin` is enabled.

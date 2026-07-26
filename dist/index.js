@@ -6,6 +6,18 @@ export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // 8h fallback session TTL (§7)
 const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most every 5 min (§7 R1)
 const DEFAULT_PORTAL_TIMEOUT_MS = 5_000;
+const PORTAL_AUTHORITY_SOURCE = "portal-v2";
+const GOOGLE_AUTHORITY_SOURCE = "google-v2";
+function hasCurrentAuthorityProvenance(source) {
+    // Existing offline-admin and dev rows are explicit local modes rather than
+    // successful Portal responses that v0.2.1 could have elevated. Keep those
+    // modes intact while forcing old portal/google/legacy rows through one live
+    // Portal recheck.
+    return (source === PORTAL_AUTHORITY_SOURCE ||
+        source === GOOGLE_AUTHORITY_SOURCE ||
+        source === "offline-admin" ||
+        source === "dev");
+}
 // Build one app's Portal connector. Adds a single `portal_sessions` table to the
 // app's own database and returns the sign-in helpers + Express middleware every
 // Mule app shares (identity-and-access.md §8). Retire the app's copied auth.ts
@@ -24,7 +36,7 @@ export function createPortalAuth(config) {
     const revalidateMs = config.revalidateMs ?? DEFAULT_REVALIDATE_MS;
     const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
     const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
-    const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs);
+    const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs, appName);
     const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth };
     db.exec(`
     CREATE TABLE IF NOT EXISTS portal_sessions (
@@ -35,7 +47,7 @@ export function createPortalAuth(config) {
       created_at     INTEGER NOT NULL,
       expires_at     INTEGER NOT NULL,       -- epoch ms; the 8h fallback TTL
       last_validated INTEGER NOT NULL,       -- epoch ms of the last Portal re-check
-      source         TEXT NOT NULL DEFAULT 'legacy', -- explicit writers use portal | google | offline-admin | dev
+      source         TEXT NOT NULL DEFAULT 'legacy', -- explicit writers use portal-v2 | google-v2 | offline-admin | dev
       revalidation_handle TEXT NOT NULL DEFAULT ''
     );
   `);
@@ -48,7 +60,7 @@ export function createPortalAuth(config) {
     if (!sessionColumns.some((column) => column.name === "revalidation_handle"))
         db.exec("ALTER TABLE portal_sessions ADD COLUMN revalidation_handle TEXT NOT NULL DEFAULT ''");
     // --- Local session store --------------------------------------------------
-    function startLocalSession(ctx, source = "portal", revalidationHandle = "") {
+    function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "") {
         const token = crypto.randomBytes(32).toString("hex");
         const now = Date.now();
         db.prepare(`INSERT INTO portal_sessions
@@ -94,8 +106,8 @@ export function createPortalAuth(config) {
     function saveContext(token, ctx) {
         db.prepare(`UPDATE portal_sessions
        SET context = ?, name = ?, last_validated = ?,
-           source = CASE WHEN source = 'legacy' THEN 'portal' ELSE source END
-       WHERE token = ?`).run(JSON.stringify(ctx), ctx.name, Date.now(), token);
+           source = ?
+       WHERE token = ?`).run(JSON.stringify(ctx), ctx.name, Date.now(), PORTAL_AUTHORITY_SOURCE, token);
     }
     // Housekeeping: drop expired sessions so the table stays small.
     function sweep() {
@@ -118,10 +130,9 @@ export function createPortalAuth(config) {
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
-        const effective = applyBootstrapAdmin(context);
-        if (!effective.active || (!effective.is_admin && !effective.apps.includes(appName)))
+        if (!context.active || (!context.is_admin && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
-        return startLocalSession(effective, "portal", revalidationHandle);
+        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
     }
     // Legacy direct-door sign-in for deployments that have not yet configured an
     // app-bound credential. The legacy context-by-email endpoint cannot issue the
@@ -175,10 +186,9 @@ export function createPortalAuth(config) {
         }
         if (!ctx)
             throw new PortalError("You don't have access to this app yet. Ask an admin in the Mule Portal.");
-        const effective = applyBootstrapAdmin(ctx);
-        if (!effective.is_admin && !effective.apps.includes(appName))
+        if (!ctx.is_admin && !ctx.apps.includes(appName))
             throw new PortalError("You haven't been given access to this app yet. Ask an admin in the Mule Portal.");
-        return startLocalSession(effective, "google");
+        return startLocalSession(ctx, GOOGLE_AUTHORITY_SOURCE);
     }
     function logout(token) {
         if (token)
@@ -199,9 +209,11 @@ export function createPortalAuth(config) {
         const row = getRow(session.token);
         if (!row)
             return null; // expired / gone
-        // Legacy rows have no trustworthy validation provenance. Even if their old
-        // timestamp is recent, make the first request after upgrade prove access.
-        if (row.source !== "legacy" && Date.now() - row.last_validated < revalidateMs)
+        // Old portal/google/legacy rows can contain the local v0.2.1 ADMIN_EMAILS
+        // elevation. Even if their timestamp is recent, make the first request
+        // after upgrade prove the Portal-authoritative context.
+        if (hasCurrentAuthorityProvenance(row.source) &&
+            Date.now() - row.last_validated < revalidateMs)
             return rowToSession(row);
         if (!portalUrl || !serviceAuth.configured()) {
             // Only an explicitly created dev session may run without Portal config.
@@ -217,7 +229,7 @@ export function createPortalAuth(config) {
         catch (error) {
             if (allowOfflineAdmin &&
                 adminEmails.has(session.email) &&
-                row.source !== "legacy" &&
+                hasCurrentAuthorityProvenance(row.source) &&
                 error instanceof PortalError &&
                 error.unavailable)
                 return rowToSession(row);
@@ -227,18 +239,17 @@ export function createPortalAuth(config) {
             destroy(session.token);
             return null;
         }
-        const effective = applyBootstrapAdmin(ctx);
-        if (!effective.is_admin && !effective.apps.includes(appName)) {
+        if (!ctx.is_admin && !ctx.apps.includes(appName)) {
             destroy(session.token);
             return null;
         }
-        saveContext(session.token, effective);
+        saveContext(session.token, ctx);
         return {
             token: session.token,
-            email: effective.email,
-            name: effective.name,
-            role: effective.role,
-            context: effective,
+            email: ctx.email,
+            name: ctx.name,
+            role: ctx.role,
+            context: ctx,
             revalidationHandle: session.revalidationHandle,
         };
     }
@@ -326,15 +337,6 @@ export function createPortalAuth(config) {
         },
         isAdminEmail: (email) => adminEmails.has((email || "").toLowerCase()),
     };
-    // --- helpers --------------------------------------------------------------
-    // If a person comes back as ops from the Portal, keep is_admin true; if the app
-    // has them as a bootstrap admin, honour that regardless of the Portal answer.
-    function applyBootstrapAdmin(ctx) {
-        if (adminEmails.has(ctx.email) && !ctx.is_admin) {
-            return { ...ctx, role: "ops", is_admin: true, locations: "all" };
-        }
-        return ctx;
-    }
 }
 // Async variant for stateless services whose sessions live in a shared
 // database. The synchronous SQLite connector above remains unchanged so
@@ -353,10 +355,10 @@ export function createPortalAuthAsync(config) {
     const revalidateMs = config.revalidateMs ?? DEFAULT_REVALIDATE_MS;
     const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
     const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
-    const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs);
+    const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs, appName);
     const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth };
     const ready = store.init();
-    async function startLocalSession(ctx, source = "portal", revalidationHandle = "") {
+    async function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "") {
         await ready;
         const token = crypto.randomBytes(32).toString("hex");
         const now = Date.now();
@@ -408,7 +410,7 @@ export function createPortalAuthAsync(config) {
     }
     async function saveContext(token, ctx) {
         await ready;
-        await store.updateContext(token, ctx, Date.now());
+        await store.updateContext(token, ctx, Date.now(), PORTAL_AUTHORITY_SOURCE);
     }
     async function sweep() {
         try {
@@ -428,10 +430,9 @@ export function createPortalAuthAsync(config) {
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
-        const effective = applyBootstrapAdmin(context);
-        if (!effective.active || (!effective.is_admin && !effective.apps.includes(appName)))
+        if (!context.active || (!context.is_admin && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
-        return startLocalSession(effective, "portal", revalidationHandle);
+        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
     }
     async function signInWithGoogle(idToken) {
         if (!googleClientId)
@@ -480,10 +481,9 @@ export function createPortalAuthAsync(config) {
         }
         if (!ctx)
             throw new PortalError("You don't have access to this app yet. Ask an admin in the Mule Portal.");
-        const effective = applyBootstrapAdmin(ctx);
-        if (!effective.is_admin && !effective.apps.includes(appName))
+        if (!ctx.is_admin && !ctx.apps.includes(appName))
             throw new PortalError("You haven't been given access to this app yet. Ask an admin in the Mule Portal.");
-        return startLocalSession(effective, "google");
+        return startLocalSession(ctx, GOOGLE_AUTHORITY_SOURCE);
     }
     async function logout(token) {
         if (token)
@@ -496,7 +496,8 @@ export function createPortalAuthAsync(config) {
         const row = await getRow(session.token);
         if (!row)
             return null;
-        if (row.source !== "legacy" && Date.now() - row.last_validated < revalidateMs)
+        if (hasCurrentAuthorityProvenance(row.source) &&
+            Date.now() - row.last_validated < revalidateMs)
             return rowToSession(row);
         if (!portalUrl || !serviceAuth.configured()) {
             if (row.source === "dev")
@@ -510,7 +511,7 @@ export function createPortalAuthAsync(config) {
         catch (error) {
             if (allowOfflineAdmin &&
                 adminEmails.has(session.email) &&
-                row.source !== "legacy" &&
+                hasCurrentAuthorityProvenance(row.source) &&
                 error instanceof PortalError &&
                 error.unavailable)
                 return rowToSession(row);
@@ -520,18 +521,17 @@ export function createPortalAuthAsync(config) {
             await destroy(session.token);
             return null;
         }
-        const effective = applyBootstrapAdmin(ctx);
-        if (!effective.is_admin && !effective.apps.includes(appName)) {
+        if (!ctx.is_admin && !ctx.apps.includes(appName)) {
             await destroy(session.token);
             return null;
         }
-        await saveContext(session.token, effective);
+        await saveContext(session.token, ctx);
         return {
             token: session.token,
-            email: effective.email,
-            name: effective.name,
-            role: effective.role,
-            context: effective,
+            email: ctx.email,
+            name: ctx.name,
+            role: ctx.role,
+            context: ctx,
             revalidationHandle: session.revalidationHandle,
         };
     }
@@ -613,12 +613,6 @@ export function createPortalAuthAsync(config) {
         },
         isAdminEmail: (email) => adminEmails.has((email || "").toLowerCase()),
     };
-    function applyBootstrapAdmin(ctx) {
-        if (adminEmails.has(ctx.email) && !ctx.is_admin) {
-            return { ...ctx, role: "ops", is_admin: true, locations: "all" };
-        }
-        return ctx;
-    }
 }
 // --- module-level helpers ---------------------------------------------------
 function bearer(req) {

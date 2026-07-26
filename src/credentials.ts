@@ -10,6 +10,13 @@ import type {
 
 const DEFAULT_REFRESH_MS = 60_000;
 
+interface CredentialLoad {
+  promise: Promise<PortalServiceCredential[]>;
+  controller: AbortController;
+  waiters: number;
+  settled: boolean;
+}
+
 function parseSecret(
   raw: string | undefined,
   expectedApp: string,
@@ -44,43 +51,75 @@ export class AwsPortalCredentialProvider implements PortalCredentialProvider {
   private readonly client: SecretsManagerClient;
   private cached: PortalServiceCredential[] = [];
   private refreshAfter = 0;
-  private inFlight?: Promise<PortalServiceCredential[]>;
+  private inFlight?: CredentialLoad;
 
   constructor(
     private readonly secretArn: string,
     private readonly appKey: string,
     region: string,
-    private readonly refreshMs = DEFAULT_REFRESH_MS
+    private readonly refreshMs = DEFAULT_REFRESH_MS,
+    client?: SecretsManagerClient
   ) {
-    this.client = new SecretsManagerClient({ region });
+    this.client = client ?? new SecretsManagerClient({ region });
   }
 
   configured(): boolean {
     return !!this.secretArn;
   }
 
-  async getCredentials(forceRefresh = false): Promise<PortalServiceCredential[]> {
+  async getCredentials(
+    forceRefresh = false,
+    signal?: AbortSignal
+  ): Promise<PortalServiceCredential[]> {
+    throwIfAborted(signal);
     if (!forceRefresh && this.cached.length && Date.now() < this.refreshAfter) {
       return this.cached;
     }
-    if (this.inFlight) return this.inFlight;
-    this.inFlight = this.load().finally(() => {
-      this.inFlight = undefined;
-    });
-    return this.inFlight;
+    if (!this.inFlight) {
+      const controller = new AbortController();
+      const load = {
+        controller,
+        waiters: 0,
+        settled: false,
+      } as CredentialLoad;
+      load.promise = this.load(controller.signal).finally(() => {
+        load.settled = true;
+        if (this.inFlight === load) this.inFlight = undefined;
+      });
+      this.inFlight = load;
+    }
+    const load = this.inFlight;
+    load.waiters += 1;
+    try {
+      return await awaitWithSignal(load.promise, signal);
+    } finally {
+      load.waiters -= 1;
+      // The SDK request belongs to the group, not to whichever caller happened
+      // to arrive first. Cancel it only after every independently bounded
+      // waiter has left.
+      if (!load.settled && load.waiters === 0) {
+        load.controller.abort(
+          new DOMException("All Portal credential waiters were aborted.", "AbortError")
+        );
+      }
+    }
   }
 
   close(): void {
+    this.inFlight?.controller.abort(
+      new DOMException("The Portal credential provider was closed.", "AbortError")
+    );
     this.client.destroy();
   }
 
-  private async load(): Promise<PortalServiceCredential[]> {
+  private async load(signal: AbortSignal): Promise<PortalServiceCredential[]> {
     try {
       const current = await this.client.send(
         new GetSecretValueCommand({
           SecretId: this.secretArn,
           VersionStage: "AWSCURRENT",
-        })
+        }),
+        { abortSignal: signal }
       );
       const values = [
         parseSecret(current.SecretString, this.appKey, "AWSCURRENT"),
@@ -90,7 +129,8 @@ export class AwsPortalCredentialProvider implements PortalCredentialProvider {
           new GetSecretValueCommand({
             SecretId: this.secretArn,
             VersionStage: "AWSPENDING",
-          })
+          }),
+          { abortSignal: signal }
         );
         values.unshift(parseSecret(pending.SecretString, this.appKey, "AWSPENDING"));
       } catch (error) {
@@ -100,6 +140,7 @@ export class AwsPortalCredentialProvider implements PortalCredentialProvider {
       this.refreshAfter = Date.now() + this.refreshMs;
       return values;
     } catch (error) {
+      if (signal.aborted) throw error;
       // A temporary Secrets Manager outage must not take a previously loaded
       // connector offline. Portal still validates the stale credential and will
       // reject it after revocation, so this remains fail-closed.
@@ -107,6 +148,39 @@ export class AwsPortalCredentialProvider implements PortalCredentialProvider {
       throw error;
     }
   }
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ??
+    new DOMException("The operation was aborted.", "AbortError");
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+async function awaitWithSignal<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) return promise;
+  throwIfAborted(signal);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReason(signal));
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        if (signal.aborted) reject(abortReason(signal));
+        else resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
 }
 
 function isMissingPendingStage(error: unknown): boolean {

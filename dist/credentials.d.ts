@@ -1,3 +1,4 @@
+import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import type { PortalCredentialProvider, PortalServiceCredential } from "./types.js";
 export declare class AwsPortalCredentialProvider implements PortalCredentialProvider {
     private readonly secretArn;
@@ -7,9 +8,9 @@ export declare class AwsPortalCredentialProvider implements PortalCredentialProv
     private cached;
     private refreshAfter;
     private inFlight?;
-    constructor(secretArn: string, appKey: string, region: string, refreshMs?: number);
+    constructor(secretArn: string, appKey: string, region: string, refreshMs?: number, client?: SecretsManagerClient);
     configured(): boolean;
-    getCredentials(forceRefresh?: boolean): Promise<PortalServiceCredential[]>;
+    getCredentials(forceRefresh?: boolean, signal?: AbortSignal): Promise<PortalServiceCredential[]>;
     close(): void;
     private load;
 }
