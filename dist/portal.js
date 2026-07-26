@@ -66,12 +66,11 @@ export class PortalServiceAuth {
                 credentials = await this.candidates(forceRefresh);
             }
             catch (error) {
-                // Migration fallback is for a provider outage only. Once Portal has
-                // explicitly rejected any app credential, fail closed so revoke-now
-                // cannot be bypassed by the still-configured shared key.
-                if (attempted.size === 0 && this.legacyKey) {
-                    return fetch(endpoint, this.withLegacy(init));
-                }
+                // A configured credential provider owns normal service authentication.
+                // Never turn a cold-cache provider failure into shared-key access: doing
+                // so would let a restart bypass per-app credential revocation. The AWS
+                // provider itself may return a previously loaded credential during an
+                // outage, and Portal still validates that credential.
                 if (lastUnauthorized)
                     return lastUnauthorized;
                 throw error;
@@ -92,10 +91,7 @@ export class PortalServiceAuth {
         }
         if (lastUnauthorized)
             return lastUnauthorized;
-        if (attempted.size === 0 && this.legacyKey) {
-            return fetch(endpoint, this.withLegacy(init));
-        }
-        throw new PortalError("Portal service authentication isn't configured.");
+        throw new PortalError("The Portal credential provider returned no usable credentials.");
     }
     async candidates(forceRefresh) {
         if (!this.provider?.configured())

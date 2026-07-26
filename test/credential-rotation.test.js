@@ -143,7 +143,7 @@ test("unregistered or rejected pending credentials fall back to current", async 
   }
 });
 
-test("a credential-provider outage falls back to the legacy key during migration", async () => {
+test("a cold-cache credential-provider outage fails closed despite a legacy key", async () => {
   const originalFetch = globalThis.fetch;
   const seen = [];
   globalThis.fetch = async (_url, init) => {
@@ -169,7 +169,77 @@ test("a credential-provider outage falls back to the legacy key during migration
     },
   });
   try {
-    await auth.signInWithPortalToken("provider-outage-token");
+    await assert.rejects(
+      () => auth.signInWithPortalToken("provider-outage-token"),
+      /Couldn't reach the Portal to complete sign-in/
+    );
+    assert.deepEqual(seen, []);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an empty configured provider fails closed instead of using the legacy key", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    seen.push({
+      credential: headers.get("authorization"),
+      legacy: headers.get("x-portal-key"),
+    });
+    return ssoResponse();
+  };
+
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "migration-only-key",
+    credentialProvider: {
+      configured: () => true,
+      async getCredentials() {
+        return [];
+      },
+    },
+  });
+  try {
+    await assert.rejects(
+      () => auth.signInWithPortalToken("empty-provider-token"),
+      /Couldn't reach the Portal to complete sign-in/
+    );
+    assert.deepEqual(seen, []);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a legacy-only configuration still authenticates with the shared key", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    seen.push({
+      credential: headers.get("authorization"),
+      legacy: headers.get("x-portal-key"),
+    });
+    return ssoResponse();
+  };
+
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "migration-only-key",
+  });
+  try {
+    await auth.signInWithPortalToken("legacy-only-token");
     assert.deepEqual(seen, [
       { credential: null, legacy: "migration-only-key" },
     ]);

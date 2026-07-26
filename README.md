@@ -5,8 +5,9 @@ It replaces the copied-and-drifting `auth.ts` that each app used to hand-roll.
 
 One module does three things (see `mule-portal/docs/identity-and-access.md` §8):
 
-1. **Sign in** — trade the Portal's one-click SSO token for a local session, or
-   verify a direct Google sign-in and pull the person's context from the Portal.
+1. **Sign in** — trade the Portal's one-click SSO token for a local session.
+   Legacy deployments without an app-bound credential may also verify a direct
+   Google sign-in and pull the person's context from the Portal.
 2. **Read identity facts** — role, `is_admin`, the location set (or `"all"`), and
    the apps a person may open — sourced from the Portal, never re-derived.
 3. **Revoke-now (§7 R1)** — re-check each live session against the Portal at most
@@ -20,7 +21,7 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.0"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.1"
 }
 ```
 
@@ -63,7 +64,7 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 | Function | What it does |
 |---|---|
 | `signInWithPortalToken(ssoToken)` | Redeem the Portal handoff → local `Session` with full context |
-| `signInWithGoogle(idToken)` | Verify Google, pull context from the Portal, start a session (direct-door apps) |
+| `signInWithGoogle(idToken)` | Legacy direct-door sign-in; unavailable once an app-bound credential provider is configured |
 | `requireAuth` / `requireAdmin` | Express middleware; attaches `req.portal`; re-validates on the §7 cadence |
 | `getContext(req \| session)` | The resolved `Context` |
 | `locationIds(req \| session)` | `number[]` the person may see, or `"all"` for ops |
@@ -80,6 +81,7 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 | `credentialSecretArn` | `PORTAL_CREDENTIAL_SECRET_ARN` | App-bound AWS Secrets Manager credential |
 | `awsRegion` | `AWS_REGION` | Region containing the app credential |
 | `credentialRefreshMs` | `60s` | Refresh stages and synthetically prove pending credentials |
+| `googleClientId` | `GOOGLE_CLIENT_ID` | Enables legacy direct Google sign-in only before app-bound credential migration |
 | `adminEmails` | `ADMIN_EMAILS` env | Local admin elevation after Portal confirms the person is active |
 | `allowOfflineAdmin` | `false` | Outage-only break glass for `ADMIN_EMAILS`; the Portal must still be configured |
 
@@ -93,9 +95,20 @@ and `PORTAL_CREDENTIAL_SECRET_ARN`.
 The connector refreshes `AWSCURRENT` and `AWSPENDING` in the background. It
 synthetically proves new credentials even when the app has no user traffic,
 uses a proven pending credential first, and falls back to `AWSCURRENT` on 401.
-During migration only, `PORTAL_SHARED_KEY` is the last fallback if Secrets
-Manager is unavailable. Remove it after Portal telemetry reports a clean
-48-hour window.
+During migration, `PORTAL_SHARED_KEY` still supports legacy-only deployments
+that have no credential provider. Once `credentialSecretArn` or an injected
+provider is configured, normal service requests never fall back to the shared
+key. Configuring a provider also disables new direct Google sign-ins because the
+legacy context-by-email exchange cannot issue an app/user-bound revalidation
+handle; new production sessions must enter through Portal SSO. Explicit
+legacy-only revalidation remains available for sessions created before migration
+until their original expiry. No new legacy-only sessions are created after the
+migration deploy, so with the default session TTL the drain is at most 8 hours
+(use the configured `sessionTtlMs` instead if it was overridden). A provider with
+a cold cache therefore fails closed if Secrets Manager is unavailable. The AWS
+provider can continue using a previously loaded credential during a temporary
+outage because Portal still validates its state. Remove the shared key only
+after that session drain and Portal telemetry's clean 48-hour window.
 
 ## Portal outages fail closed
 

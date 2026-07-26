@@ -661,3 +661,116 @@ test("async session stores preserve revoke-now and hard-expiry behavior", async 
 
   globalThis.fetch = realFetch;
 });
+
+test("direct Google sign-in respects the credential-migration boundary", async (t) => {
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  const credentialProvider = {
+    configured: () => true,
+    async getCredentials() {
+      return [];
+    },
+  };
+
+  await t.test("a provider-absent legacy deployment keeps its fixed-lifetime flow", async () => {
+    const originalVerify = OAuth2Client.prototype.verifyIdToken;
+    OAuth2Client.prototype.verifyIdToken = async () => ({
+      getPayload: () => ({
+        email: "manager@themule.ca",
+        email_verified: true,
+        name: "Manager",
+      }),
+    });
+    const db = new Database(":memory:");
+    const auth = createPortalAuth({
+      db,
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      sharedKey: "migration-only-key",
+      googleClientId: "test-google-client",
+    });
+    globalThis.fetch = async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("x-portal-key"), "migration-only-key");
+      assert.equal(headers.get("authorization"), null);
+      return jsonResponse(context());
+    };
+    try {
+      const session = await auth.signInWithGoogle("google-token");
+      const row = db
+        .prepare(
+          `SELECT source, revalidation_handle, created_at, expires_at
+           FROM portal_sessions WHERE token = ?`
+        )
+        .get(session.token);
+      assert.equal(row.source, "google");
+      assert.equal(row.revalidation_handle, "");
+      assert.equal(row.expires_at - row.created_at, 8 * 60 * 60 * 1000);
+    } finally {
+      auth.close();
+      db.close();
+      OAuth2Client.prototype.verifyIdToken = originalVerify;
+    }
+  });
+
+  await t.test("SQLite sessions fail before legacy Portal authentication", async () => {
+    const db = new Database(":memory:");
+    const auth = createPortalAuth({
+      db,
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      sharedKey: "migration-only-key",
+      credentialProvider,
+      googleClientId: "test-google-client",
+    });
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error("legacy Portal authentication must not run");
+    };
+    try {
+      await assert.rejects(() => auth.signInWithGoogle("google-token"), (error) => {
+        assert.ok(error instanceof PortalError);
+        assert.match(error.message, /Sign in through the Mule Portal/i);
+        assert.equal(error.unavailable, false);
+        return true;
+      });
+      assert.equal(fetchCalls, 0);
+      assert.equal(db.prepare("SELECT COUNT(*) AS n FROM portal_sessions").get().n, 0);
+    } finally {
+      auth.close();
+      db.close();
+    }
+  });
+
+  await t.test("async sessions fail before legacy Portal authentication", async () => {
+    const sessionStore = memorySessionStore();
+    const auth = createPortalAuthAsync({
+      sessionStore,
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      sharedKey: "migration-only-key",
+      credentialProvider,
+      googleClientId: "test-google-client",
+    });
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error("legacy Portal authentication must not run");
+    };
+    try {
+      await assert.rejects(() => auth.signInWithGoogle("google-token"), (error) => {
+        assert.ok(error instanceof PortalError);
+        assert.match(error.message, /Sign in through the Mule Portal/i);
+        assert.equal(error.unavailable, false);
+        return true;
+      });
+      assert.equal(fetchCalls, 0);
+      assert.equal(sessionStore.rows.size, 0);
+    } finally {
+      auth.close();
+    }
+  });
+
+});

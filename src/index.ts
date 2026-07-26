@@ -223,13 +223,18 @@ export function createPortalAuth(config: PortalAuthConfig) {
     return startLocalSession(effective, "portal", revalidationHandle);
   }
 
-  // Direct Google sign-in for apps that keep their own door. Verifies the Google
-  // token locally, then pulls the person's context from the Portal so role /
-  // locations are always Portal-sourced (§10). Refuses anyone the Portal doesn't
-  // grant this app (bootstrap admins always pass).
+  // Legacy direct-door sign-in for deployments that have not yet configured an
+  // app-bound credential. The legacy context-by-email endpoint cannot issue the
+  // app/user-bound handle required by credential-backed revalidation, so a
+  // migrated deployment must start every new production session through Portal
+  // SSO. Pre-migration sessions retain their fixed expiry and drain naturally.
   async function signInWithGoogle(idToken: string): Promise<Session> {
     if (!googleClientId) throw new PortalError("Google sign-in isn't configured.");
     if (!idToken) throw new PortalError("No sign-in token was received.");
+    if (serviceAuth.hasCredentialProvider())
+      throw new PortalError(
+        "Direct Google sign-in is unavailable after this app migrated to Portal credentials. Sign in through the Mule Portal."
+      );
     // Offline-admin is outage-only break glass, not a substitute for deploying
     // the connector's Portal URL and key correctly.
     if (!portalUrl || !serviceAuth.configured())
@@ -561,6 +566,12 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
   async function signInWithGoogle(idToken: string): Promise<Session> {
     if (!googleClientId) throw new PortalError("Google sign-in isn't configured.");
     if (!idToken) throw new PortalError("No sign-in token was received.");
+    // Credential-backed deployments must obtain a revalidation handle through
+    // Portal SSO; the legacy direct-Google context lookup cannot supply one.
+    if (serviceAuth.hasCredentialProvider())
+      throw new PortalError(
+        "Direct Google sign-in is unavailable after this app migrated to Portal credentials. Sign in through the Mule Portal."
+      );
     if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal access verification isn't configured.");
 

@@ -68,8 +68,8 @@ export interface PortalAuthConfig {
   // Base URL of the Portal, e.g. https://mule-portal.onrender.com (no trailing /).
   portalUrl?: string;
   // The shared service key both sides hold (PORTAL_SHARED_KEY).
-  // Legacy migration fallback only. New production deployments use an
-  // app-bound credential provider.
+  // Legacy-only migration authentication. Normal requests do not fall back to
+  // this key after an app-bound credential provider is configured.
   sharedKey?: string;
   // Injectable provider for tests or non-AWS hosts.
   credentialProvider?: PortalCredentialProvider;
@@ -81,7 +81,9 @@ export interface PortalAuthConfig {
   // How often to refresh current/pending stages and synthetically prove a new
   // pending credential. Default 60 seconds.
   credentialRefreshMs?: number;
-  // For apps that also allow a direct Google sign-in (not just Portal handoff).
+  // Legacy direct Google sign-in. Supported only while no app-bound credential
+  // provider is configured; migrated deployments start sessions through Portal
+  // SSO so every new session receives a revalidation handle.
   googleClientId?: string;
   // Approved company domains for direct Google sign-in (e.g. ["themule.ca"]).
   allowedDomains?: string[];
