@@ -180,6 +180,99 @@ test("a credential-provider outage falls back to the legacy key during migration
   }
 });
 
+test("explicit credential rejection never falls back to the legacy key", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    const headers = new Headers(init?.headers);
+    if (path === "/api/credential-proof") {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    seen.push({
+      credentialId: credentialId(init),
+      legacy: headers.get("x-portal-key"),
+    });
+    return new Response("", { status: 401 });
+  };
+
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "migration-only-key",
+    credentialProvider: provider(),
+    credentialRefreshMs: 20,
+  });
+  try {
+    await delay(10);
+    await assert.rejects(() => auth.signInWithPortalToken("revoked-token"));
+    assert.deepEqual(seen, [
+      { credentialId: pending.credentialId, legacy: null },
+      { credentialId: current.credentialId, legacy: null },
+    ]);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a refresh outage after a 401 still fails closed", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen = [];
+  let providerCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    const headers = new Headers(init?.headers);
+    if (path === "/api/credential-proof") {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    seen.push({
+      credentialId: credentialId(init),
+      legacy: headers.get("x-portal-key"),
+    });
+    return new Response("", { status: 401 });
+  };
+
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({
+    db,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "migration-only-key",
+    credentialProvider: {
+      configured: () => true,
+      async getCredentials() {
+        providerCalls += 1;
+        if (providerCalls >= 3) {
+          throw new Error("Secrets Manager refresh is unavailable");
+        }
+        return [{ ...current }];
+      },
+    },
+    credentialRefreshMs: 60_000,
+  });
+  try {
+    await delay(10);
+    await assert.rejects(() => auth.signInWithPortalToken("revoked-token"));
+    assert.deepEqual(seen, [
+      { credentialId: current.credentialId, legacy: null },
+    ]);
+  } finally {
+    auth.close();
+    db.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("app directory reads use the app-bound credential", async () => {
   const originalFetch = globalThis.fetch;
   const seen = [];

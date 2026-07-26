@@ -76,6 +76,10 @@ export class PortalServiceAuth {
       if (!this.legacyKey) throw new PortalError("Legacy Portal authentication is unavailable.");
       return fetch(endpoint, this.withLegacy(init));
     }
+    if (!this.provider?.configured()) {
+      if (this.legacyKey) return fetch(endpoint, this.withLegacy(init));
+      throw new PortalError("Portal service authentication isn't configured.");
+    }
 
     let lastUnauthorized: Response | undefined;
     const attempted = new Set<string>();
@@ -84,7 +88,13 @@ export class PortalServiceAuth {
       try {
         credentials = await this.candidates(forceRefresh);
       } catch (error) {
-        if (this.legacyKey) return fetch(endpoint, this.withLegacy(init));
+        // Migration fallback is for a provider outage only. Once Portal has
+        // explicitly rejected any app credential, fail closed so revoke-now
+        // cannot be bypassed by the still-configured shared key.
+        if (attempted.size === 0 && this.legacyKey) {
+          return fetch(endpoint, this.withLegacy(init));
+        }
+        if (lastUnauthorized) return lastUnauthorized;
         throw error;
       }
       for (const credential of credentials) {
@@ -99,8 +109,10 @@ export class PortalServiceAuth {
         lastUnauthorized = response;
       }
     }
-    if (this.legacyKey) return fetch(endpoint, this.withLegacy(init));
     if (lastUnauthorized) return lastUnauthorized;
+    if (attempted.size === 0 && this.legacyKey) {
+      return fetch(endpoint, this.withLegacy(init));
+    }
     throw new PortalError("Portal service authentication isn't configured.");
   }
 
