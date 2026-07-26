@@ -32,6 +32,24 @@ export interface Session {
   name: string;
   role: string;
   context: Context;
+  // Opaque Portal-side handle used for app/user-bound mid-session revalidation.
+  revalidationHandle?: string;
+}
+
+export type PortalCredentialStage = "AWSCURRENT" | "AWSPENDING";
+
+export interface PortalServiceCredential {
+  schemaVersion: 1;
+  appKey: string;
+  credentialId: string;
+  secret: string;
+  stage: PortalCredentialStage;
+}
+
+export interface PortalCredentialProvider {
+  configured(): boolean;
+  getCredentials(forceRefresh?: boolean): Promise<PortalServiceCredential[]>;
+  close?(): void;
 }
 
 // requireAuth attaches the resolved session (and its context) to the request.
@@ -50,7 +68,19 @@ export interface PortalAuthConfig {
   // Base URL of the Portal, e.g. https://mule-portal.onrender.com (no trailing /).
   portalUrl?: string;
   // The shared service key both sides hold (PORTAL_SHARED_KEY).
+  // Legacy migration fallback only. New production deployments use an
+  // app-bound credential provider.
   sharedKey?: string;
+  // Injectable provider for tests or non-AWS hosts.
+  credentialProvider?: PortalCredentialProvider;
+  // AWS Secrets Manager secret ARN. Defaults to
+  // PORTAL_CREDENTIAL_SECRET_ARN when no provider is injected.
+  credentialSecretArn?: string;
+  // AWS region for the secret. Defaults to AWS_REGION.
+  awsRegion?: string;
+  // How often to refresh current/pending stages and synthetically prove a new
+  // pending credential. Default 60 seconds.
+  credentialRefreshMs?: number;
   // For apps that also allow a direct Google sign-in (not just Portal handoff).
   googleClientId?: string;
   // Approved company domains for direct Google sign-in (e.g. ["themule.ca"]).
@@ -84,6 +114,7 @@ export interface PortalSessionRow {
   expires_at: number;
   last_validated: number;
   source: string;
+  revalidation_handle?: string;
 }
 
 // Async session persistence for stateless apps (for example, a managed

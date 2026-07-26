@@ -20,7 +20,7 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.1.3"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.0"
 }
 ```
 
@@ -77,8 +77,25 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 | `sessionTtlMs` | `8h` | Fallback session lifetime (§7 belt-and-braces) |
 | `revalidateMs` | `5min` | Max time between Portal re-checks (§7 R1 SLA) |
 | `portalRequestTimeoutMs` | `5s` | Maximum wait for a Portal sign-in or context request |
+| `credentialSecretArn` | `PORTAL_CREDENTIAL_SECRET_ARN` | App-bound AWS Secrets Manager credential |
+| `awsRegion` | `AWS_REGION` | Region containing the app credential |
+| `credentialRefreshMs` | `60s` | Refresh stages and synthetically prove pending credentials |
 | `adminEmails` | `ADMIN_EMAILS` env | Local admin elevation after Portal confirms the person is active |
 | `allowOfflineAdmin` | `false` | Outage-only break glass for `ADMIN_EMAILS`; the Portal must still be configured |
+
+## Rotating app credentials
+
+Production services authenticate to Portal with one app-bound secret from AWS
+Secrets Manager. Render assumes the app's exact-service IAM role through OIDC;
+do not set long-lived AWS access keys. Configure `AWS_ROLE_ARN`, `AWS_REGION`,
+and `PORTAL_CREDENTIAL_SECRET_ARN`.
+
+The connector refreshes `AWSCURRENT` and `AWSPENDING` in the background. It
+synthetically proves new credentials even when the app has no user traffic,
+uses a proven pending credential first, and falls back to `AWSCURRENT` on 401.
+During migration only, `PORTAL_SHARED_KEY` is the last fallback if Secrets
+Manager is unavailable. Remove it after Portal telemetry reports a clean
+48-hour window.
 
 ## Portal outages fail closed
 

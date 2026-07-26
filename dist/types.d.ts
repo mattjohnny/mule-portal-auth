@@ -21,6 +21,20 @@ export interface Session {
     name: string;
     role: string;
     context: Context;
+    revalidationHandle?: string;
+}
+export type PortalCredentialStage = "AWSCURRENT" | "AWSPENDING";
+export interface PortalServiceCredential {
+    schemaVersion: 1;
+    appKey: string;
+    credentialId: string;
+    secret: string;
+    stage: PortalCredentialStage;
+}
+export interface PortalCredentialProvider {
+    configured(): boolean;
+    getCredentials(forceRefresh?: boolean): Promise<PortalServiceCredential[]>;
+    close?(): void;
 }
 export interface PortalAuthedRequest extends Request {
     portal?: Session;
@@ -30,6 +44,10 @@ export interface PortalAuthConfig {
     appName: string;
     portalUrl?: string;
     sharedKey?: string;
+    credentialProvider?: PortalCredentialProvider;
+    credentialSecretArn?: string;
+    awsRegion?: string;
+    credentialRefreshMs?: number;
     googleClientId?: string;
     allowedDomains?: string[];
     adminEmails?: string[];
@@ -47,6 +65,7 @@ export interface PortalSessionRow {
     expires_at: number;
     last_validated: number;
     source: string;
+    revalidation_handle?: string;
 }
 export interface PortalSessionStore {
     init(): Promise<void>;

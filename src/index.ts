@@ -9,7 +9,15 @@ import type {
   PortalSessionRow,
   Session,
 } from "./types.js";
-import { PortalError, fetchContext, redeemSso, type PortalClientOpts } from "./portal.js";
+import {
+  PortalError,
+  PortalServiceAuth,
+  fetchAppDirectory,
+  fetchContext,
+  redeemSso,
+  type PortalClientOpts,
+} from "./portal.js";
+import { defaultCredentialProvider } from "./credentials.js";
 
 export type {
   Context,
@@ -21,7 +29,16 @@ export type {
   PortalAuthConfig,
   PortalAuthedRequest,
 } from "./types.js";
+export type {
+  PortalCredentialProvider,
+  PortalCredentialStage,
+  PortalServiceCredential,
+} from "./types.js";
 export { PortalError } from "./portal.js";
+export {
+  AwsPortalCredentialProvider,
+  StaticPortalCredentialProvider,
+} from "./credentials.js";
 
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // 8h fallback session TTL (§7)
 const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most every 5 min (§7 R1)
@@ -36,6 +53,14 @@ export function createPortalAuth(config: PortalAuthConfig) {
   const appName = config.appName;
   const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
   const sharedKey = (config.sharedKey ?? process.env.PORTAL_SHARED_KEY ?? "").trim();
+  const credentialRefreshMs = config.credentialRefreshMs ?? 60_000;
+  const credentialProvider = defaultCredentialProvider(
+    appName,
+    config.credentialProvider,
+    (config.credentialSecretArn ?? process.env.PORTAL_CREDENTIAL_SECRET_ARN ?? "").trim(),
+    (config.awsRegion ?? process.env.AWS_REGION ?? "").trim(),
+    credentialRefreshMs
+  );
   const googleClientId = (config.googleClientId ?? process.env.GOOGLE_CLIENT_ID ?? "").trim();
   const allowedDomains = (config.allowedDomains ?? envList("ALLOWED_DOMAINS")).map((d) =>
     d.toLowerCase()
@@ -47,7 +72,13 @@ export function createPortalAuth(config: PortalAuthConfig) {
   const revalidateMs = config.revalidateMs ?? DEFAULT_REVALIDATE_MS;
   const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
   const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
-  const portal: PortalClientOpts = { portalUrl, sharedKey, appName, requestTimeoutMs };
+  const serviceAuth = new PortalServiceAuth(
+    credentialProvider,
+    sharedKey,
+    portalUrl,
+    credentialRefreshMs
+  );
+  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth };
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS portal_sessions (
@@ -58,7 +89,8 @@ export function createPortalAuth(config: PortalAuthConfig) {
       created_at     INTEGER NOT NULL,
       expires_at     INTEGER NOT NULL,       -- epoch ms; the 8h fallback TTL
       last_validated INTEGER NOT NULL,       -- epoch ms of the last Portal re-check
-      source         TEXT NOT NULL DEFAULT 'legacy' -- explicit writers use portal | google | offline-admin | dev
+      source         TEXT NOT NULL DEFAULT 'legacy', -- explicit writers use portal | google | offline-admin | dev
+      revalidation_handle TEXT NOT NULL DEFAULT ''
     );
   `);
   const sessionColumns = db.prepare("PRAGMA table_info(portal_sessions)").all() as {
@@ -69,19 +101,42 @@ export function createPortalAuth(config: PortalAuthConfig) {
     // sessions, so their provenance is unknowable. Mark them legacy and force a
     // real Portal recheck before they can use cached/offline-admin trust.
     db.exec("ALTER TABLE portal_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'");
+  if (!sessionColumns.some((column) => column.name === "revalidation_handle"))
+    db.exec(
+      "ALTER TABLE portal_sessions ADD COLUMN revalidation_handle TEXT NOT NULL DEFAULT ''"
+    );
 
   // --- Local session store --------------------------------------------------
   function startLocalSession(
     ctx: Context,
-    source: "portal" | "google" | "offline-admin" | "dev" = "portal"
+    source: "portal" | "google" | "offline-admin" | "dev" = "portal",
+    revalidationHandle = ""
   ): Session {
     const token = crypto.randomBytes(32).toString("hex");
     const now = Date.now();
     db.prepare(
-      `INSERT INTO portal_sessions (token, email, name, context, created_at, expires_at, last_validated, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(token, ctx.email, ctx.name, JSON.stringify(ctx), now, now + sessionTtlMs, now, source);
-    return { token, email: ctx.email, name: ctx.name, role: ctx.role, context: ctx };
+      `INSERT INTO portal_sessions
+       (token, email, name, context, created_at, expires_at, last_validated, source, revalidation_handle)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      token,
+      ctx.email,
+      ctx.name,
+      JSON.stringify(ctx),
+      now,
+      now + sessionTtlMs,
+      now,
+      source,
+      revalidationHandle
+    );
+    return {
+      token,
+      email: ctx.email,
+      name: ctx.name,
+      role: ctx.role,
+      context: ctx,
+      revalidationHandle: revalidationHandle || undefined,
+    };
   }
 
   function rowToSession(row: {
@@ -89,15 +144,25 @@ export function createPortalAuth(config: PortalAuthConfig) {
     email: string;
     name: string;
     context: string;
+    revalidation_handle?: string;
   }): Session {
     const ctx = JSON.parse(row.context) as Context;
-    return { token: row.token, email: row.email, name: row.name, role: ctx.role, context: ctx };
+    return {
+      token: row.token,
+      email: row.email,
+      name: row.name,
+      role: ctx.role,
+      context: ctx,
+      revalidationHandle: row.revalidation_handle || undefined,
+    };
   }
 
   function getRow(token: string) {
     const row = db
       .prepare(
-        "SELECT token, email, name, context, expires_at, last_validated, source FROM portal_sessions WHERE token = ?"
+        `SELECT token, email, name, context, expires_at, last_validated, source,
+                revalidation_handle
+         FROM portal_sessions WHERE token = ?`
       )
       .get(token) as
       | {
@@ -108,6 +173,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
           expires_at: number;
           last_validated: number;
           source: string;
+          revalidation_handle: string;
         }
       | undefined;
     if (!row) return null;
@@ -147,14 +213,14 @@ export function createPortalAuth(config: PortalAuthConfig) {
   // The Portal one-click handoff: trade the single-use SSO token for a local
   // session carrying the full context.
   async function signInWithPortalToken(ssoToken: string): Promise<Session> {
-    if (!portalUrl || !sharedKey)
-      throw new PortalError("Portal sign-in isn't configured (missing PORTAL_URL / shared key).");
+    if (!portalUrl || !serviceAuth.configured())
+      throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
-    const { context } = await redeemSso(portal, ssoToken);
+    const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     const effective = applyBootstrapAdmin(context);
     if (!effective.active || (!effective.is_admin && !effective.apps.includes(appName)))
       throw new PortalError("You no longer have access to this app.", true);
-    return startLocalSession(effective, "portal");
+    return startLocalSession(effective, "portal", revalidationHandle);
   }
 
   // Direct Google sign-in for apps that keep their own door. Verifies the Google
@@ -166,7 +232,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
     if (!idToken) throw new PortalError("No sign-in token was received.");
     // Offline-admin is outage-only break glass, not a substitute for deploying
     // the connector's Portal URL and key correctly.
-    if (!portalUrl || !sharedKey)
+    if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal access verification isn't configured.");
 
     const { OAuth2Client } = await import("google-auth-library");
@@ -190,7 +256,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
 
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, email);
+      ctx = await fetchContext(portal, undefined, email);
     } catch (error) {
       if (
         allowOfflineAdmin &&
@@ -232,7 +298,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
     // timestamp is recent, make the first request after upgrade prove access.
     if (row.source !== "legacy" && Date.now() - row.last_validated < revalidateMs)
       return rowToSession(row);
-    if (!portalUrl || !sharedKey) {
+    if (!portalUrl || !serviceAuth.configured()) {
       // Only an explicitly created dev session may run without Portal config.
       // Existing production rows migrate with source='legacy' and deny.
       if (row.source === "dev") return rowToSession(row);
@@ -241,7 +307,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
 
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, session.email);
+      ctx = await fetchContext(portal, session.revalidationHandle, session.email);
     } catch (error) {
       if (
         allowOfflineAdmin &&
@@ -269,6 +335,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
       name: effective.name,
       role: effective.role,
       context: effective,
+      revalidationHandle: session.revalidationHandle,
     };
   }
 
@@ -333,6 +400,12 @@ export function createPortalAuth(config: PortalAuthConfig) {
     return toContext(src);
   }
 
+  function readAppDirectory(): Promise<unknown> {
+    if (!portalUrl || !serviceAuth.configured())
+      throw new PortalError("Portal directory isn't configured.");
+    return fetchAppDirectory(portal);
+  }
+
   return {
     signInWithPortalToken,
     signInWithGoogle,
@@ -342,9 +415,14 @@ export function createPortalAuth(config: PortalAuthConfig) {
     requireAdmin,
     revalidateIfStale,
     getContext,
+    readAppDirectory,
     locationIds,
     locationKeys,
-    isConfigured: () => !!portalUrl && !!sharedKey,
+    isConfigured: () => !!portalUrl && serviceAuth.configured(),
+    close: () => {
+      clearInterval(sweepTimer);
+      serviceAuth.close();
+    },
     isAdminEmail: (email: string) => adminEmails.has((email || "").toLowerCase()),
   };
 
@@ -367,6 +445,14 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
   const appName = config.appName;
   const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
   const sharedKey = (config.sharedKey ?? process.env.PORTAL_SHARED_KEY ?? "").trim();
+  const credentialRefreshMs = config.credentialRefreshMs ?? 60_000;
+  const credentialProvider = defaultCredentialProvider(
+    appName,
+    config.credentialProvider,
+    (config.credentialSecretArn ?? process.env.PORTAL_CREDENTIAL_SECRET_ARN ?? "").trim(),
+    (config.awsRegion ?? process.env.AWS_REGION ?? "").trim(),
+    credentialRefreshMs
+  );
   const googleClientId = (config.googleClientId ?? process.env.GOOGLE_CLIENT_ID ?? "").trim();
   const allowedDomains = (config.allowedDomains ?? envList("ALLOWED_DOMAINS")).map((d) =>
     d.toLowerCase()
@@ -378,12 +464,19 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
   const revalidateMs = config.revalidateMs ?? DEFAULT_REVALIDATE_MS;
   const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
   const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
-  const portal: PortalClientOpts = { portalUrl, sharedKey, appName, requestTimeoutMs };
+  const serviceAuth = new PortalServiceAuth(
+    credentialProvider,
+    sharedKey,
+    portalUrl,
+    credentialRefreshMs
+  );
+  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth };
   const ready = store.init();
 
   async function startLocalSession(
     ctx: Context,
-    source: "portal" | "google" | "offline-admin" | "dev" = "portal"
+    source: "portal" | "google" | "offline-admin" | "dev" = "portal",
+    revalidationHandle = ""
   ): Promise<Session> {
     await ready;
     const token = crypto.randomBytes(32).toString("hex");
@@ -397,13 +490,28 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       expires_at: now + sessionTtlMs,
       last_validated: now,
       source,
+      revalidation_handle: revalidationHandle,
     });
-    return { token, email: ctx.email, name: ctx.name, role: ctx.role, context: ctx };
+    return {
+      token,
+      email: ctx.email,
+      name: ctx.name,
+      role: ctx.role,
+      context: ctx,
+      revalidationHandle: revalidationHandle || undefined,
+    };
   }
 
   function rowToSession(row: PortalSessionRow): Session {
     const ctx = JSON.parse(row.context) as Context;
-    return { token: row.token, email: row.email, name: row.name, role: ctx.role, context: ctx };
+    return {
+      token: row.token,
+      email: row.email,
+      name: row.name,
+      role: ctx.role,
+      context: ctx,
+      revalidationHandle: row.revalidation_handle || undefined,
+    };
   }
 
   async function getRow(token: string): Promise<PortalSessionRow | null> {
@@ -440,20 +548,20 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
   sweepTimer.unref?.();
 
   async function signInWithPortalToken(ssoToken: string): Promise<Session> {
-    if (!portalUrl || !sharedKey)
-      throw new PortalError("Portal sign-in isn't configured (missing PORTAL_URL / shared key).");
+    if (!portalUrl || !serviceAuth.configured())
+      throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
-    const { context } = await redeemSso(portal, ssoToken);
+    const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     const effective = applyBootstrapAdmin(context);
     if (!effective.active || (!effective.is_admin && !effective.apps.includes(appName)))
       throw new PortalError("You no longer have access to this app.", true);
-    return startLocalSession(effective, "portal");
+    return startLocalSession(effective, "portal", revalidationHandle);
   }
 
   async function signInWithGoogle(idToken: string): Promise<Session> {
     if (!googleClientId) throw new PortalError("Google sign-in isn't configured.");
     if (!idToken) throw new PortalError("No sign-in token was received.");
-    if (!portalUrl || !sharedKey)
+    if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal access verification isn't configured.");
 
     const { OAuth2Client } = await import("google-auth-library");
@@ -477,7 +585,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
 
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, email);
+      ctx = await fetchContext(portal, undefined, email);
     } catch (error) {
       if (
         allowOfflineAdmin &&
@@ -509,14 +617,14 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     if (!row) return null;
     if (row.source !== "legacy" && Date.now() - row.last_validated < revalidateMs)
       return rowToSession(row);
-    if (!portalUrl || !sharedKey) {
+    if (!portalUrl || !serviceAuth.configured()) {
       if (row.source === "dev") return rowToSession(row);
       throw new PortalError("Portal access verification isn't configured.");
     }
 
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, session.email);
+      ctx = await fetchContext(portal, session.revalidationHandle, session.email);
     } catch (error) {
       if (
         allowOfflineAdmin &&
@@ -544,6 +652,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       name: effective.name,
       role: effective.role,
       context: effective,
+      revalidationHandle: session.revalidationHandle,
     };
   }
 
@@ -601,6 +710,12 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     return toContext(src);
   }
 
+  function readAppDirectory(): Promise<unknown> {
+    if (!portalUrl || !serviceAuth.configured())
+      throw new PortalError("Portal directory isn't configured.");
+    return fetchAppDirectory(portal);
+  }
+
   return {
     signInWithPortalToken,
     signInWithGoogle,
@@ -610,9 +725,14 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     requireAdmin,
     revalidateIfStale,
     getContext,
+    readAppDirectory,
     locationIds,
     locationKeys,
-    isConfigured: () => !!portalUrl && !!sharedKey,
+    isConfigured: () => !!portalUrl && serviceAuth.configured(),
+    close: () => {
+      clearInterval(sweepTimer);
+      serviceAuth.close();
+    },
     isAdminEmail: (email: string) => adminEmails.has((email || "").toLowerCase()),
   };
 
