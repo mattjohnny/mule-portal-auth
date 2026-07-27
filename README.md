@@ -129,8 +129,10 @@ outage; missing Portal configuration still denies access. Sessions created by a
 pre-provenance release, including `portal`/`google` rows from v0.2.1 and sessions
 written by an older binary after a rollback, are forced through one successful
 Portal re-check before they can use that exception. The successful check marks
-the row `portal-v2`; known async stores persist the same marker, while an older
-store that ignores the optional marker remains safe by rechecking until expiry.
+the row `portal-v2`. Async stores that persist the optional source marker pay
+that forced re-check once; a store that ignores it remains safe by rechecking
+until expiry. Labour Live's companion `agent/portal-credential-rotation` branch
+persists the marker and must be included before the fleet bump.
 A Portal response that
 marks the person inactive, or removes this app from their grants, destroys the
 session. A successful Portal response always controls role, admin status,
