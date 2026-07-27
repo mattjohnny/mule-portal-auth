@@ -33,7 +33,7 @@ export interface PortalServiceCredential {
 }
 export interface PortalCredentialProvider {
     configured(): boolean;
-    getCredentials(forceRefresh?: boolean): Promise<PortalServiceCredential[]>;
+    getCredentials(forceRefresh?: boolean, signal?: AbortSignal): Promise<PortalServiceCredential[]>;
     close?(): void;
 }
 export interface PortalAuthedRequest extends Request {
@@ -72,8 +72,9 @@ export interface PortalSessionStore {
     insert(row: PortalSessionRow): Promise<void>;
     get(token: string): Promise<PortalSessionRow | null>;
     delete(token: string): Promise<void>;
-    updateContext(token: string, context: Context, validatedAt: number): Promise<void>;
+    updateContext(token: string, context: Context, validatedAt: number, source?: string): Promise<void>;
     sweep(expiredBefore: number): Promise<void>;
+    withRevalidationLock?<T>(token: string, callback: () => Promise<T>): Promise<T>;
 }
 export interface AsyncPortalAuthConfig extends Omit<PortalAuthConfig, "db"> {
     sessionStore: PortalSessionStore;

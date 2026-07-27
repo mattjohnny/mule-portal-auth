@@ -4,6 +4,9 @@ export declare class PortalError extends Error {
     unavailable: boolean;
     constructor(message: string, signedOut?: boolean, unavailable?: boolean);
 }
+export declare class PortalCredentialError extends PortalError {
+    constructor(message?: string);
+}
 export interface PortalClientOpts {
     portalUrl: string;
     appName: string;
@@ -15,10 +18,11 @@ export declare class PortalServiceAuth {
     private readonly legacyKey;
     private readonly portalUrl;
     private readonly refreshMs;
+    private readonly appName;
     private readonly provenCredentials;
     private readonly proofTimer?;
     private static readonly PROOF_TIMEOUT_MS;
-    constructor(provider: PortalCredentialProvider | undefined, legacyKey: string, portalUrl: string, refreshMs: number);
+    constructor(provider: PortalCredentialProvider | undefined, legacyKey: string, portalUrl: string, refreshMs: number, appName?: string);
     configured(): boolean;
     hasCredentialProvider(): boolean;
     hasLegacyFallback(): boolean;

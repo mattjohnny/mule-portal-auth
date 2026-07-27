@@ -46,6 +46,13 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Fail on stale committed dist
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all -- dist)" ]; then
+            git status --short --untracked-files=all -- dist
+            exit 1
+          fi
+
   # Separate job so a newly-published advisory cannot mask a real test failure.
   audit:
     name: Dependency audit

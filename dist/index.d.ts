@@ -2,7 +2,7 @@ import type { Response, NextFunction } from "express";
 import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, Session } from "./types.js";
 export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
 export type { PortalCredentialProvider, PortalCredentialStage, PortalServiceCredential, } from "./types.js";
-export { PortalError } from "./portal.js";
+export { PortalCredentialError, PortalError } from "./portal.js";
 export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./credentials.js";
 export declare function createPortalAuth(config: PortalAuthConfig): {
     signInWithPortalToken: (ssoToken: string) => Promise<Session>;

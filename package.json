@@ -1,6 +1,6 @@
 {
   "name": "@mule/portal-auth",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Shared Portal identity client for The Mule apps — redeem SSO, read role/location/app context, and revalidate against the Portal for revoke-now (identity-and-access.md §8).",
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"

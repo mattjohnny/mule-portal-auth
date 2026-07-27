@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import { OAuth2Client } from "google-auth-library";
-import { createPortalAuth, createPortalAuthAsync, PortalError } from "../dist/index.js";
+import {
+  createPortalAuth,
+  createPortalAuthAsync,
+  PortalCredentialError,
+  PortalError,
+} from "../dist/index.js";
 
 const realFetch = globalThis.fetch;
 
@@ -81,7 +86,7 @@ function memorySessionStore() {
     async delete(token) {
       rows.delete(token);
     },
-    async updateContext(token, value, validatedAt) {
+    async updateContext(token, value, validatedAt, source) {
       const row = rows.get(token);
       if (!row) return;
       rows.set(token, {
@@ -89,7 +94,7 @@ function memorySessionStore() {
         context: JSON.stringify(value),
         name: value.name,
         last_validated: validatedAt,
-        source: row.source === "legacy" ? "portal" : row.source,
+        source: source ?? row.source,
       });
     },
     async sweep(expiredBefore) {
@@ -222,7 +227,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     assert.equal(verified.next, true);
     assert.equal(
       db.prepare("SELECT source FROM portal_sessions WHERE token = 'old-writer-token'").get().source,
-      "portal"
+      "portal-v2"
     );
     db.close();
   });
@@ -276,7 +281,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     assert.equal(verified.next, true);
     assert.equal(
       db.prepare("SELECT source FROM portal_sessions WHERE token = 'legacy-token'").get().source,
-      "portal"
+      "portal-v2"
     );
 
     db.prepare("UPDATE portal_sessions SET last_validated = 0 WHERE token = 'legacy-token'").run();
@@ -285,6 +290,55 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     };
     const breakGlass = await invoke(auth, "legacy-token");
     assert.equal(breakGlass.next, true);
+    db.close();
+  });
+
+  await t.test("a v0.2.1 elevated Portal row is re-proven before cache or outage use", async () => {
+    const { db, auth } = configured({
+      adminEmails: ["ops@themule.ca"],
+      allowOfflineAdmin: true,
+      revalidateMs: 60_000,
+    });
+    const session = auth.devSignIn("ops@themule.ca", "Ops");
+    const elevated = context({
+      email: "ops@themule.ca",
+      name: "Ops",
+      role: "ops",
+      is_admin: true,
+      locations: "all",
+      apps: [],
+    });
+    db.prepare(
+      `UPDATE portal_sessions
+       SET context = ?, source = 'portal', last_validated = ?
+       WHERE token = ?`
+    ).run(JSON.stringify(elevated), Date.now(), session.token);
+
+    globalThis.fetch = async () => {
+      throw new Error("offline");
+    };
+    const denied = await invoke(auth, session.token);
+    assert.equal(denied.status, 503);
+
+    globalThis.fetch = async () =>
+      jsonResponse(
+        context({
+          email: "ops@themule.ca",
+          name: "Ops",
+          role: "manager",
+          is_admin: false,
+          apps: ["example-app"],
+        })
+      );
+    const verified = await invoke(auth, session.token);
+    assert.equal(verified.next, true);
+    assert.equal(verified.req.portal.context.role, "manager");
+    assert.equal(verified.req.portal.context.is_admin, false);
+    assert.equal(
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(session.token)
+        .source,
+      "portal-v2"
+    );
     db.close();
   });
 
@@ -346,12 +400,124 @@ test("Portal revalidation fails closed and recovers without extending stale trus
   });
 
   await t.test("a successful recheck refreshes context", async () => {
-    const { db, auth } = configured();
+    const { db, auth } = configured({
+      adminEmails: ["manager@themule.ca"],
+      allowOfflineAdmin: true,
+    });
     const session = auth.devSignIn("manager@themule.ca", "Manager");
-    globalThis.fetch = async () => jsonResponse(context({ ctx_version: 9 }));
+    globalThis.fetch = async (url, init) => {
+      const endpoint = new URL(String(url));
+      const headers = new Headers(init?.headers);
+      assert.equal(endpoint.searchParams.get("app"), "example-app");
+      assert.equal(headers.get("x-portal-app"), "example-app");
+      return jsonResponse(
+        context({
+          role: "manager",
+          is_admin: false,
+          locations: [{ id: 7, key: "hamilton", name: "Hamilton" }],
+          ctx_version: 9,
+        })
+      );
+    };
     const result = await invoke(auth, session.token);
     assert.equal(result.next, true);
     assert.equal(result.req.portal.context.ctx_version, 9);
+    assert.equal(result.req.portal.context.role, "manager");
+    assert.equal(result.req.portal.context.is_admin, false);
+    assert.deepEqual(result.req.portal.context.locations, [
+      { id: 7, key: "hamilton", name: "Hamilton" },
+    ]);
+    assert.equal(
+      JSON.parse(
+        db.prepare("SELECT context FROM portal_sessions WHERE token = ?").get(session.token).context
+      ).is_admin,
+      false
+    );
+    db.close();
+  });
+
+  await t.test("an ADMIN_EMAILS entry cannot preserve a removed legacy app grant", async () => {
+    const { db, auth } = configured({
+      adminEmails: ["ops@themule.ca"],
+      allowOfflineAdmin: true,
+    });
+    const session = auth.devSignIn("ops@themule.ca", "Ops");
+    globalThis.fetch = async () =>
+      jsonResponse(
+        context({
+          email: "ops@themule.ca",
+          name: "Ops",
+          role: "manager",
+          is_admin: false,
+          apps: [],
+        })
+      );
+    const result = await invoke(auth, session.token);
+    assert.equal(result.status, 401);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM portal_sessions").get().n, 0);
+    db.close();
+  });
+
+  await t.test("an ADMIN_EMAILS entry cannot preserve a removed handle session", async () => {
+    const credential = {
+      schemaVersion: 1,
+      appKey: "example-app",
+      credentialId: "current-credential",
+      secret: "currentsecretcurrentsecretcurrentsecret123",
+      stage: "AWSCURRENT",
+    };
+    globalThis.fetch = async (url) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/api/credential-proof") return jsonResponse({ ok: true });
+      if (path === "/api/redeem-sso") {
+        return jsonResponse({
+          email: "ops@themule.ca",
+          name: "Ops",
+          role: "manager",
+          context: context({
+            email: "ops@themule.ca",
+            name: "Ops",
+            role: "manager",
+            is_admin: false,
+            apps: ["example-app"],
+          }),
+          revalidation_handle: "handle-handle-handle-handle-handle-123",
+        });
+      }
+      if (path === "/api/context") {
+        return jsonResponse(
+          context({
+            email: "ops@themule.ca",
+            name: "Ops",
+            role: "manager",
+            is_admin: false,
+            apps: [],
+          })
+        );
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+    const db = new Database(":memory:");
+    const auth = createPortalAuth({
+      db,
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      credentialProvider: {
+        configured: () => true,
+        async getCredentials() {
+          return [{ ...credential }];
+        },
+      },
+      adminEmails: ["ops@themule.ca"],
+      allowOfflineAdmin: true,
+      revalidateMs: 0,
+    });
+    const session = await auth.signInWithPortalToken("portal-token");
+    assert.equal(session.context.is_admin, false);
+    const result = await invoke(auth, session.token);
+    assert.equal(result.status, 401);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM portal_sessions").get().n, 0);
+    auth.close();
     db.close();
   });
 
@@ -632,6 +798,276 @@ test("Portal revalidation fails closed and recovers without extending stale trus
   globalThis.fetch = realFetch;
 });
 
+test("credential discovery failures never activate cached offline-admin access", async (t) => {
+  const failures = [
+    {
+      name: "IAM access denied",
+      create() {
+        const error = new Error("not authorized");
+        error.name = "AccessDeniedException";
+        return Promise.reject(error);
+      },
+    },
+    {
+      name: "deleted secret",
+      create() {
+        const error = new Error("secret deleted");
+        error.name = "ResourceNotFoundException";
+        return Promise.reject(error);
+      },
+    },
+    {
+      name: "malformed secret",
+      create() {
+        return Promise.reject(
+          new Error("Portal credential AWSCURRENT is not valid JSON.")
+        );
+      },
+    },
+    {
+      name: "provider timeout",
+      create() {
+        return new Promise(() => {});
+      },
+    },
+  ];
+
+  async function exercise(kind, entry) {
+    let enabled = false;
+    const provider = {
+      configured: () => enabled,
+      getCredentials: () => entry.create(),
+    };
+    const common = {
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      sharedKey: "migration-only-key",
+      credentialProvider: provider,
+      adminEmails: ["ops@themule.ca"],
+      allowOfflineAdmin: true,
+      revalidateMs: 0,
+      portalRequestTimeoutMs: 10,
+    };
+    let auth;
+    let session;
+    let close;
+    if (kind === "sync") {
+      const db = new Database(":memory:");
+      auth = createPortalAuth({ ...common, db });
+      session = auth.devSignIn("ops@themule.ca", "Ops");
+      db.prepare(
+        `UPDATE portal_sessions
+         SET source = 'portal-v2', last_validated = 0,
+             revalidation_handle = ?
+         WHERE token = ?`
+      ).run("handle-handle-handle-handle-handle-123", session.token);
+      session.revalidationHandle =
+        "handle-handle-handle-handle-handle-123";
+      close = () => {
+        auth.close();
+        db.close();
+      };
+    } else {
+      const sessionStore = memorySessionStore();
+      auth = createPortalAuthAsync({ ...common, sessionStore });
+      session = await auth.devSignIn("ops@themule.ca", "Ops");
+      const row = sessionStore.rows.get(session.token);
+      row.source = "portal-v2";
+      row.last_validated = 0;
+      row.revalidation_handle =
+        "handle-handle-handle-handle-handle-123";
+      session.revalidationHandle =
+        "handle-handle-handle-handle-handle-123";
+      close = () => auth.close();
+    }
+    enabled = true;
+    try {
+      await assert.rejects(
+        () => auth.revalidateIfStale(session),
+        (error) => {
+          assert.ok(error instanceof PortalCredentialError);
+          assert.equal(error.unavailable, false);
+          return true;
+        }
+      );
+      const denied = await invoke(auth, session.token);
+      assert.equal(denied.next, false);
+      assert.equal(denied.status, 503);
+    } finally {
+      close();
+    }
+  }
+
+  for (const entry of failures) {
+    await t.test(`sync: ${entry.name}`, () => exercise("sync", entry));
+    await t.test(`async: ${entry.name}`, () => exercise("async", entry));
+  }
+  globalThis.fetch = realFetch;
+});
+
+test("simultaneous stale revalidations share one Portal call and clean up", async (t) => {
+  async function exercise(kind) {
+    let auth;
+    let session;
+    let makeStale;
+    let close;
+    if (kind === "sync") {
+      const db = new Database(":memory:");
+      auth = createPortalAuth({
+        db,
+        appName: "example-app",
+        portalUrl: "https://portal.example",
+        sharedKey: "test-key",
+        revalidateMs: 60_000,
+      });
+      session = auth.devSignIn("manager@themule.ca", "Manager");
+      makeStale = () =>
+        db
+          .prepare(
+            "UPDATE portal_sessions SET last_validated = 0 WHERE token = ?"
+          )
+          .run(session.token);
+      close = () => {
+        auth.close();
+        db.close();
+      };
+    } else {
+      const sessionStore = memorySessionStore();
+      auth = createPortalAuthAsync({
+        sessionStore,
+        appName: "example-app",
+        portalUrl: "https://portal.example",
+        sharedKey: "test-key",
+        revalidateMs: 60_000,
+      });
+      session = await auth.devSignIn("manager@themule.ca", "Manager");
+      makeStale = () => {
+        sessionStore.rows.get(session.token).last_validated = 0;
+      };
+      close = () => auth.close();
+    }
+
+    let calls = 0;
+    let release;
+    makeStale();
+    globalThis.fetch = async () => {
+      calls += 1;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return jsonResponse(context({ ctx_version: 10 }));
+    };
+    try {
+      const requests = [
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+      ];
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls, 1);
+      release();
+      const results = await Promise.all(requests);
+      assert.ok(results.every((result) => result?.context.ctx_version === 10));
+
+      // A successful operation must leave no stuck in-flight entry.
+      makeStale();
+      globalThis.fetch = async () => {
+        calls += 1;
+        throw new Error("Portal offline");
+      };
+      const failed = await Promise.allSettled([
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+      ]);
+      assert.equal(calls, 2);
+      assert.ok(failed.every((result) => result.status === "rejected"));
+
+      // A rejected operation must also be removed so the next request retries.
+      globalThis.fetch = async () => {
+        calls += 1;
+        return jsonResponse(context({ ctx_version: 11 }));
+      };
+      const recovered = await auth.revalidateIfStale(session);
+      assert.equal(calls, 3);
+      assert.equal(recovered.context.ctx_version, 11);
+    } finally {
+      close();
+    }
+  }
+
+  await t.test("SQLite connector", () => exercise("sync"));
+  await t.test("async connector", () => exercise("async"));
+  globalThis.fetch = realFetch;
+});
+
+test("the optional async store lease coalesces across connector instances", async () => {
+  const sessionStore = memorySessionStore();
+  const tails = new Map();
+  let lockCalls = 0;
+  sessionStore.withRevalidationLock = async (token, callback) => {
+    lockCalls += 1;
+    const prior = tails.get(token) ?? Promise.resolve();
+    let release;
+    const next = new Promise((resolve) => {
+      release = resolve;
+    });
+    const tail = prior.then(() => next);
+    tails.set(token, tail);
+    await prior;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (tails.get(token) === tail) tails.delete(token);
+    }
+  };
+  const common = {
+    sessionStore,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 60_000,
+  };
+  const first = createPortalAuthAsync(common);
+  const second = createPortalAuthAsync(common);
+  const session = await first.devSignIn(
+    "manager@themule.ca",
+    "Manager"
+  );
+  const fresh = await second.revalidateIfStale(session);
+  assert.equal(fresh.email, session.email);
+  assert.equal(lockCalls, 0, "a fresh session must not acquire the distributed lock");
+  sessionStore.rows.get(session.token).last_validated = 0;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    await new Promise((resolve) => setImmediate(resolve));
+    return jsonResponse(context({ ctx_version: 12 }));
+  };
+  try {
+    const [left, right] = await Promise.all([
+      first.revalidateIfStale(session),
+      second.revalidateIfStale(session),
+    ]);
+    assert.equal(calls, 1);
+    assert.equal(lockCalls, 2, "each process reaches the shared lease for the stale row");
+    assert.equal(left.context.ctx_version, 12);
+    assert.equal(right.context.ctx_version, 12);
+    await first.revalidateIfStale(left);
+    await second.revalidateIfStale(right);
+    assert.equal(
+      lockCalls,
+      2,
+      "the refreshed row returns through the fast path without another lock"
+    );
+  } finally {
+    first.close();
+    second.close();
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("async session stores preserve revoke-now and hard-expiry behavior", async () => {
   const sessionStore = memorySessionStore();
   const auth = createPortalAuthAsync({
@@ -639,14 +1075,30 @@ test("async session stores preserve revoke-now and hard-expiry behavior", async 
     appName: "example-app",
     portalUrl: "https://portal.example",
     sharedKey: "test-key",
+    adminEmails: ["manager@themule.ca"],
+    allowOfflineAdmin: true,
     revalidateMs: 0,
   });
+  globalThis.fetch = async () =>
+    jsonResponse({
+      email: "manager@themule.ca",
+      name: "Manager",
+      role: "manager",
+      context: context(),
+    });
+  const portalSession = await auth.signInWithPortalToken("portal-token");
+  assert.equal(portalSession.context.role, "manager");
+  assert.equal(portalSession.context.is_admin, false);
+  await auth.logout(portalSession.token);
+
   const session = await auth.devSignIn("manager@themule.ca", "Manager");
 
   globalThis.fetch = async () => jsonResponse(context({ ctx_version: 7 }));
   const refreshed = await invoke(auth, session.token);
   assert.equal(refreshed.next, true);
   assert.equal(refreshed.req.portal.context.ctx_version, 7);
+  assert.equal(refreshed.req.portal.context.role, "manager");
+  assert.equal(refreshed.req.portal.context.is_admin, false);
 
   globalThis.fetch = async () => jsonResponse(context({ apps: [] }));
   const revoked = await invoke(auth, session.token);
@@ -659,6 +1111,56 @@ test("async session stores preserve revoke-now and hard-expiry behavior", async 
   assert.equal(expired.status, 401);
   assert.equal(sessionStore.rows.size, 0);
 
+  globalThis.fetch = realFetch;
+});
+
+test("async v0.2.1 elevated rows require one live authority recheck", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({
+    sessionStore,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    adminEmails: ["ops@themule.ca"],
+    allowOfflineAdmin: true,
+    revalidateMs: 60_000,
+  });
+  const session = await auth.devSignIn("ops@themule.ca", "Ops");
+  const row = sessionStore.rows.get(session.token);
+  row.source = "portal";
+  row.last_validated = Date.now();
+  row.context = JSON.stringify(
+    context({
+      email: "ops@themule.ca",
+      name: "Ops",
+      role: "ops",
+      is_admin: true,
+      locations: "all",
+      apps: [],
+    })
+  );
+
+  globalThis.fetch = async () => {
+    throw new Error("offline");
+  };
+  const denied = await invoke(auth, session.token);
+  assert.equal(denied.status, 503);
+
+  globalThis.fetch = async () =>
+    jsonResponse(
+      context({
+        email: "ops@themule.ca",
+        name: "Ops",
+        role: "manager",
+        is_admin: false,
+        apps: ["example-app"],
+      })
+    );
+  const verified = await invoke(auth, session.token);
+  assert.equal(verified.next, true);
+  assert.equal(verified.req.portal.context.is_admin, false);
+  assert.equal(sessionStore.rows.get(session.token).source, "portal-v2");
+  auth.close();
   globalThis.fetch = realFetch;
 });
 
@@ -689,6 +1191,7 @@ test("direct Google sign-in respects the credential-migration boundary", async (
       portalUrl: "https://portal.example",
       sharedKey: "migration-only-key",
       googleClientId: "test-google-client",
+      adminEmails: ["manager@themule.ca"],
     });
     globalThis.fetch = async (_url, init) => {
       const headers = new Headers(init?.headers);
@@ -698,13 +1201,15 @@ test("direct Google sign-in respects the credential-migration boundary", async (
     };
     try {
       const session = await auth.signInWithGoogle("google-token");
+      assert.equal(session.context.role, "manager");
+      assert.equal(session.context.is_admin, false);
       const row = db
         .prepare(
           `SELECT source, revalidation_handle, created_at, expires_at
            FROM portal_sessions WHERE token = ?`
         )
         .get(session.token);
-      assert.equal(row.source, "google");
+      assert.equal(row.source, "google-v2");
       assert.equal(row.revalidation_handle, "");
       assert.equal(row.expires_at - row.created_at, 8 * 60 * 60 * 1000);
     } finally {
@@ -773,4 +1278,80 @@ test("direct Google sign-in respects the credential-migration boundary", async (
     }
   });
 
+});
+
+test("a 503 records whether the Portal was actually unavailable", async () => {
+  const common = {
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 0,
+    portalRequestTimeoutMs: 25,
+  };
+
+  async function denialEvents(storeOverrides, fetchImpl) {
+    const sessionStore = { ...memorySessionStore(), ...storeOverrides };
+    const auth = createPortalAuthAsync({ ...common, sessionStore });
+    const session = await auth.devSignIn("ops@themule.ca", "Ops");
+    const row = sessionStore.rows.get(session.token);
+    row.source = "portal-v2";
+    row.last_validated = 0;
+
+    const events = [];
+    const realWarn = console.warn;
+    console.warn = (line) => {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.event === "portal_revalidation_denied") events.push(parsed);
+      } catch {
+        // not our structured line
+      }
+    };
+    globalThis.fetch = fetchImpl;
+    try {
+      const denied = await invoke(auth, session.token);
+      assert.equal(denied.status, 503, "both causes must still fail closed");
+      return events;
+    } finally {
+      console.warn = realWarn;
+      globalThis.fetch = realFetch;
+      auth.close();
+    }
+  }
+
+  // A shared store failing its own bounded lock wait is not a Portal outage.
+  // This is the expected outcome under contention, so it must be tellable apart
+  // from one.
+  const lockTimeout = new Error("canceling statement due to lock timeout");
+  const storeFailure = await denialEvents(
+    {
+      async withRevalidationLock() {
+        throw lockTimeout;
+      },
+    },
+    async () => {
+      throw new Error("the Portal must not be reached once the lock fails");
+    }
+  );
+  assert.equal(storeFailure.length, 1);
+  assert.equal(
+    storeFailure[0].portal_unavailable,
+    false,
+    "a local store failure must not be reported as a Portal outage"
+  );
+
+  // A genuine Portal outage is marked as one.
+  const outage = await denialEvents({}, async () => jsonResponse({}, 503));
+  assert.equal(outage.length, 1);
+  assert.equal(outage[0].portal_unavailable, true);
+
+  // Neither line may carry an error message, which can hold a session token or
+  // a Secrets Manager ARN.
+  for (const event of [...storeFailure, ...outage]) {
+    assert.equal(typeof event.error_name, "string");
+    assert.ok(
+      !JSON.stringify(event).includes("canceling statement"),
+      "only an allow-listed error name may be logged"
+    );
+  }
 });

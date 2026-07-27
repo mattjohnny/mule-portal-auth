@@ -21,12 +21,23 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.1"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.2"
 }
 ```
 
 `better-sqlite3`, `express`, and (optionally) `google-auth-library` are peer
 dependencies — the app already has them.
+
+### v0.2.2 release gates
+
+Complete this release in order:
+
+1. Merge Portal Auth PR #4 into `main`.
+2. Create and publish the `v0.2.2` tag from that merged `main` commit.
+3. Update both the package and lockfile pin in Labour Live PR #47 to `v0.2.2`,
+   rerun its checks, and only then merge that PR.
+
+Do not begin the remaining fleet bump until all three steps are complete.
 
 ## Use
 
@@ -82,7 +93,7 @@ app.get("/api/data", auth.requireAuth, (req, res) => {
 | `awsRegion` | `AWS_REGION` | Region containing the app credential |
 | `credentialRefreshMs` | `60s` | Refresh stages and synthetically prove pending credentials |
 | `googleClientId` | `GOOGLE_CLIENT_ID` | Enables legacy direct Google sign-in only before app-bound credential migration |
-| `adminEmails` | `ADMIN_EMAILS` env | Local admin elevation after Portal confirms the person is active |
+| `adminEmails` | `ADMIN_EMAILS` env | Emails eligible for explicit outage-only break glass; never overrides a successful Portal role or app decision |
 | `allowOfflineAdmin` | `false` | Outage-only break glass for `ADMIN_EMAILS`; the Portal must still be configured |
 
 ## Rotating app credentials
@@ -95,6 +106,13 @@ and `PORTAL_CREDENTIAL_SECRET_ARN`.
 The connector refreshes `AWSCURRENT` and `AWSPENDING` in the background. It
 synthetically proves new credentials even when the app has no user traffic,
 uses a proven pending credential first, and falls back to `AWSCURRENT` on 401.
+The configured Portal request timeout covers Secrets Manager credential loading,
+the Portal request, and its response body; a cold or refreshing AWS lookup cannot
+extend that deadline. The caller enforces the bound even for an older injected
+provider that ignores `AbortSignal`. Coalesced AWS loads use a group-owned abort
+signal, so one request timing out cannot cancel another live waiter. Legacy
+shared-key requests include the app claim for
+migration telemetry, but the Portal never treats that claim as authorization.
 During migration, `PORTAL_SHARED_KEY` still supports legacy-only deployments
 that have no credential provider. Once `credentialSecretArn` or an injected
 provider is configured, normal service requests never fall back to the shared
@@ -107,8 +125,42 @@ migration deploy, so with the default session TTL the drain is at most 8 hours
 (use the configured `sessionTtlMs` instead if it was overridden). A provider with
 a cold cache therefore fails closed if Secrets Manager is unavailable. The AWS
 provider can continue using a previously loaded credential during a temporary
-outage because Portal still validates its state. Remove the shared key only
-after that session drain and Portal telemetry's clean 48-hour window.
+network/service outage because Portal still validates its state. IAM denial, a
+deleted secret, malformed `AWSCURRENT`, local configuration errors, and a
+caller credential-discovery deadline are hard failures and never activate
+`allowOfflineAdmin`, even when a stale value was previously loaded. Once
+`AWSCURRENT` has parsed successfully, a separate `AWSPENDING` read or parse
+failure is logged without secret material and current remains usable.
+Background synthetic-proof discovery failures are also emitted as structured,
+sanitized warnings; the expected pre-registration `401` race remains quiet.
+Remove the shared key only after that session drain and Portal telemetry's clean
+48-hour window.
+
+## Revalidation concurrency
+
+Simultaneous stale requests for the same session share one Portal context call
+inside each connector process. The in-flight entry is removed after success or
+failure, so a later request can retry normally.
+
+An async store shared by multiple service instances can additionally implement:
+
+```ts
+withRevalidationLock<T>(
+  token: string,
+  callback: () => Promise<T>
+): Promise<T>
+```
+
+The store must hold a per-token distributed lease while `callback` runs and
+release it whether the callback resolves or rejects. Bound lock acquisition so
+a stuck peer fails closed rather than waiting forever. The callback calls the
+same store's `get`, `updateContext`, or `delete` methods; those operations must
+remain safe while the lease is held by reusing its database connection or by
+not monopolizing a connection they need. The connector reads the session again
+inside that lease, so a second instance observes the first instance's successful
+validation instead of repeating it. Fresh sessions do not acquire the
+distributed lease. Without this optional hook, coalescing is process-local:
+overlapping instances can each make one Portal call for the same stale session.
 
 ## Portal outages fail closed
 
@@ -119,10 +171,19 @@ stale access from surviving an outage while allowing service to resume without
 another login once the Portal can confirm the person. `allowOfflineAdmin` is the
 explicit exception for matching `ADMIN_EMAILS` users during a configured Portal
 outage; missing Portal configuration still denies access. Sessions created by a
-pre-provenance release, including sessions written by an older binary after a
-rollback, are forced through one successful Portal re-check before they can use
-that exception. A Portal response that
+pre-provenance release, including `portal`/`google` rows from v0.2.1 and sessions
+written by an older binary after a rollback, are forced through one successful
+Portal re-check before they can use that exception. The successful check marks
+the row `portal-v2`. Async stores that persist the optional source marker pay
+that forced re-check once; a store that ignores it remains safe by rechecking
+until expiry. Labour Live's companion `agent/portal-credential-rotation` branch
+persists the marker; follow the v0.2.2 release gates above before the fleet bump.
+A Portal response that
 marks the person inactive, or removes this app from their grants, destroys the
-session. Only network/timeouts, retryable `408`/`425`, and selected `5xx`
-responses qualify as an outage. `429` throttling, authentication failures, and
-malformed Portal responses remain fail-closed even when `allowOfflineAdmin` is enabled.
+session. A successful Portal response always controls role, admin status,
+locations, and app grants; `ADMIN_EMAILS` never elevates it. Only Portal
+network/timeouts, retryable `408`/`425`, and selected `5xx` responses qualify as
+an outage. Credential-provider, AWS IAM, secret configuration/content, and
+caller credential-discovery deadline failures are local hard failures. `429`
+throttling, authentication failures, and malformed Portal responses also remain
+fail-closed even when `allowOfflineAdmin` is enabled.
