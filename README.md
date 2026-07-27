@@ -28,6 +28,17 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 `better-sqlite3`, `express`, and (optionally) `google-auth-library` are peer
 dependencies — the app already has them.
 
+### v0.2.2 release gates
+
+Complete this release in order:
+
+1. Merge Portal Auth PR #4 into `main`.
+2. Create and publish the `v0.2.2` tag from that merged `main` commit.
+3. Update both the package and lockfile pin in Labour Live PR #47 to `v0.2.2`,
+   rerun its checks, and only then merge that PR.
+
+Do not begin the remaining fleet bump until all three steps are complete.
+
 ## Use
 
 ```ts
@@ -132,7 +143,7 @@ Portal re-check before they can use that exception. The successful check marks
 the row `portal-v2`. Async stores that persist the optional source marker pay
 that forced re-check once; a store that ignores it remains safe by rechecking
 until expiry. Labour Live's companion `agent/portal-credential-rotation` branch
-persists the marker and must be included before the fleet bump.
+persists the marker; follow the v0.2.2 release gates above before the fleet bump.
 A Portal response that
 marks the person inactive, or removes this app from their grants, destroys the
 session. A successful Portal response always controls role, admin status,
