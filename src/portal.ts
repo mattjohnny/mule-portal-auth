@@ -3,6 +3,7 @@ import type {
   PortalCredentialProvider,
   PortalServiceCredential,
 } from "./types.js";
+import { safeErrorName } from "./safe-error.js";
 
 // Thin HTTP client for the Portal service endpoints this connector uses.
 // Production uses an app-bound rotating credential. x-portal-key remains only
@@ -250,33 +251,6 @@ async function discardResponse(response: Response): Promise<void> {
   } catch {
     // The response is already closed; there is nothing left to release.
   }
-}
-
-const SAFE_ERROR_NAMES = new Set([
-  "AbortError",
-  "AccessDeniedException",
-  "DecryptionFailure",
-  "Error",
-  "InternalFailure",
-  "InternalServiceError",
-  "InvalidParameterException",
-  "InvalidRequestException",
-  "NetworkingError",
-  "RequestTimeout",
-  "ResourceNotFoundException",
-  "ServiceUnavailableException",
-  "ThrottlingException",
-  "TimeoutError",
-  "TooManyRequestsException",
-  "TypeError",
-]);
-
-function safeErrorName(error: unknown): string {
-  const candidate =
-    error && typeof error === "object" && "name" in error
-      ? String((error as { name?: unknown }).name || "")
-      : "";
-  return SAFE_ERROR_NAMES.has(candidate) ? candidate : "Error";
 }
 
 /**

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { PortalError, PortalServiceAuth, fetchAppDirectory, fetchContext, redeemSso, } from "./portal.js";
 import { defaultCredentialProvider } from "./credentials.js";
+import { safeErrorName } from "./safe-error.js";
 export { PortalCredentialError, PortalError } from "./portal.js";
 export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./credentials.js";
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // 8h fallback session TTL (§7)
@@ -8,6 +9,22 @@ const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most ever
 const DEFAULT_PORTAL_TIMEOUT_MS = 5_000;
 const PORTAL_AUTHORITY_SOURCE = "portal-v2";
 const GOOGLE_AUTHORITY_SOURCE = "google-v2";
+// requireAuth answers one 503 for every reason revalidation can fail, and the
+// message names the Portal because that is the common case. It is not the only
+// case: a shared session store can fail locally, and a store implementing
+// withRevalidationLock fails closed here when a bounded lock wait expires. That
+// is expected behaviour under contention, not a Portal outage, so an operator
+// needs to be able to tell the two apart without changing what the person
+// signing in is told. Only an allow-listed error name is emitted.
+function logRevalidationDenial(error) {
+    console.warn(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "warn",
+        event: "portal_revalidation_denied",
+        error_name: safeErrorName(error),
+        portal_unavailable: error instanceof PortalError && error.unavailable,
+    }));
+}
 function hasCurrentAuthorityProvenance(source) {
     // Existing offline-admin and dev rows are explicit local modes rather than
     // successful Portal responses that v0.2.1 could have elevated. Keep those
@@ -284,7 +301,8 @@ export function createPortalAuth(config) {
             req.portal = session;
             next();
         })
-            .catch(() => {
+            .catch((error) => {
+            logRevalidationDenial(error);
             res.setHeader("Cache-Control", "no-store");
             res.setHeader("Retry-After", "5");
             res.status(503).json({
@@ -599,7 +617,8 @@ export function createPortalAuthAsync(config) {
                 req.portal = session;
                 next();
             }
-            catch {
+            catch (error) {
+                logRevalidationDenial(error);
                 res.setHeader("Cache-Control", "no-store");
                 res.setHeader("Retry-After", "5");
                 res.status(503).json({

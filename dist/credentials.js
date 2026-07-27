@@ -1,4 +1,5 @@
 import { GetSecretValueCommand, SecretsManagerClient, } from "@aws-sdk/client-secrets-manager";
+import { safeErrorName } from "./safe-error.js";
 const DEFAULT_REFRESH_MS = 60_000;
 function parseSecret(raw, expectedApp, stage) {
     let parsed;
@@ -161,30 +162,6 @@ function isMissingPendingStage(error) {
     if (named.name !== "InvalidRequestException")
         return false;
     return /AWSPENDING|version stage|staging label/i.test(named.message || "");
-}
-const SAFE_ERROR_NAMES = new Set([
-    "AbortError",
-    "AccessDeniedException",
-    "DecryptionFailure",
-    "Error",
-    "InternalFailure",
-    "InternalServiceError",
-    "InvalidParameterException",
-    "InvalidRequestException",
-    "NetworkingError",
-    "RequestTimeout",
-    "ResourceNotFoundException",
-    "ServiceUnavailableException",
-    "ThrottlingException",
-    "TimeoutError",
-    "TooManyRequestsException",
-    "TypeError",
-]);
-function safeErrorName(error) {
-    const candidate = error && typeof error === "object" && "name" in error
-        ? String(error.name || "")
-        : "";
-    return SAFE_ERROR_NAMES.has(candidate) ? candidate : "Error";
 }
 function canUseStaleCredentials(error) {
     const named = error;

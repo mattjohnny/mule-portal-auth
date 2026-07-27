@@ -1279,3 +1279,79 @@ test("direct Google sign-in respects the credential-migration boundary", async (
   });
 
 });
+
+test("a 503 records whether the Portal was actually unavailable", async () => {
+  const common = {
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 0,
+    portalRequestTimeoutMs: 25,
+  };
+
+  async function denialEvents(storeOverrides, fetchImpl) {
+    const sessionStore = { ...memorySessionStore(), ...storeOverrides };
+    const auth = createPortalAuthAsync({ ...common, sessionStore });
+    const session = await auth.devSignIn("ops@themule.ca", "Ops");
+    const row = sessionStore.rows.get(session.token);
+    row.source = "portal-v2";
+    row.last_validated = 0;
+
+    const events = [];
+    const realWarn = console.warn;
+    console.warn = (line) => {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.event === "portal_revalidation_denied") events.push(parsed);
+      } catch {
+        // not our structured line
+      }
+    };
+    globalThis.fetch = fetchImpl;
+    try {
+      const denied = await invoke(auth, session.token);
+      assert.equal(denied.status, 503, "both causes must still fail closed");
+      return events;
+    } finally {
+      console.warn = realWarn;
+      globalThis.fetch = realFetch;
+      auth.close();
+    }
+  }
+
+  // A shared store failing its own bounded lock wait is not a Portal outage.
+  // This is the expected outcome under contention, so it must be tellable apart
+  // from one.
+  const lockTimeout = new Error("canceling statement due to lock timeout");
+  const storeFailure = await denialEvents(
+    {
+      async withRevalidationLock() {
+        throw lockTimeout;
+      },
+    },
+    async () => {
+      throw new Error("the Portal must not be reached once the lock fails");
+    }
+  );
+  assert.equal(storeFailure.length, 1);
+  assert.equal(
+    storeFailure[0].portal_unavailable,
+    false,
+    "a local store failure must not be reported as a Portal outage"
+  );
+
+  // A genuine Portal outage is marked as one.
+  const outage = await denialEvents({}, async () => jsonResponse({}, 503));
+  assert.equal(outage.length, 1);
+  assert.equal(outage[0].portal_unavailable, true);
+
+  // Neither line may carry an error message, which can hold a session token or
+  // a Secrets Manager ARN.
+  for (const event of [...storeFailure, ...outage]) {
+    assert.equal(typeof event.error_name, "string");
+    assert.ok(
+      !JSON.stringify(event).includes("canceling statement"),
+      "only an allow-listed error name may be logged"
+    );
+  }
+});

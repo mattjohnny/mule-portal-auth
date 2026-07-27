@@ -1,3 +1,4 @@
+import { safeErrorName } from "./safe-error.js";
 // Thin HTTP client for the Portal service endpoints this connector uses.
 // Production uses an app-bound rotating credential. x-portal-key remains only
 // session — see the Portal's /api/redeem-sso and /api/context.
@@ -201,30 +202,6 @@ async function discardResponse(response) {
     catch {
         // The response is already closed; there is nothing left to release.
     }
-}
-const SAFE_ERROR_NAMES = new Set([
-    "AbortError",
-    "AccessDeniedException",
-    "DecryptionFailure",
-    "Error",
-    "InternalFailure",
-    "InternalServiceError",
-    "InvalidParameterException",
-    "InvalidRequestException",
-    "NetworkingError",
-    "RequestTimeout",
-    "ResourceNotFoundException",
-    "ServiceUnavailableException",
-    "ThrottlingException",
-    "TimeoutError",
-    "TooManyRequestsException",
-    "TypeError",
-]);
-function safeErrorName(error) {
-    const candidate = error && typeof error === "object" && "name" in error
-        ? String(error.name || "")
-        : "";
-    return SAFE_ERROR_NAMES.has(candidate) ? candidate : "Error";
 }
 /**
  * A bounded-request signal whose timer keeps the event loop alive.

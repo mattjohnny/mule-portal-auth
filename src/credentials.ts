@@ -7,6 +7,7 @@ import type {
   PortalCredentialStage,
   PortalServiceCredential,
 } from "./types.js";
+import { safeErrorName } from "./safe-error.js";
 
 const DEFAULT_REFRESH_MS = 60_000;
 
@@ -201,33 +202,6 @@ function isMissingPendingStage(error: unknown): boolean {
   if (named.name === "ResourceNotFoundException") return true;
   if (named.name !== "InvalidRequestException") return false;
   return /AWSPENDING|version stage|staging label/i.test(named.message || "");
-}
-
-const SAFE_ERROR_NAMES = new Set([
-  "AbortError",
-  "AccessDeniedException",
-  "DecryptionFailure",
-  "Error",
-  "InternalFailure",
-  "InternalServiceError",
-  "InvalidParameterException",
-  "InvalidRequestException",
-  "NetworkingError",
-  "RequestTimeout",
-  "ResourceNotFoundException",
-  "ServiceUnavailableException",
-  "ThrottlingException",
-  "TimeoutError",
-  "TooManyRequestsException",
-  "TypeError",
-]);
-
-function safeErrorName(error: unknown): string {
-  const candidate =
-    error && typeof error === "object" && "name" in error
-      ? String((error as { name?: unknown }).name || "")
-      : "";
-  return SAFE_ERROR_NAMES.has(candidate) ? candidate : "Error";
 }
 
 function canUseStaleCredentials(error: unknown): boolean {
