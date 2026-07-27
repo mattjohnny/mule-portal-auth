@@ -96,8 +96,19 @@ export class AwsPortalCredentialProvider {
                 values.unshift(parseSecret(pending.SecretString, this.appKey, "AWSPENDING"));
             }
             catch (error) {
-                if (!isMissingPendingStage(error))
+                if (signal.aborted)
                     throw error;
+                if (!isMissingPendingStage(error)) {
+                    // AWSCURRENT is already parsed and usable. Pending is an optional
+                    // early-rotation candidate, so its independent discovery/parse
+                    // failure must not discard current or take the app offline.
+                    console.warn(JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        level: "warn",
+                        event: "portal_pending_credential_ignored",
+                        error_name: safeErrorName(error),
+                    }));
+                }
             }
             this.cached = values;
             this.refreshAfter = Date.now() + this.refreshMs;
@@ -109,7 +120,7 @@ export class AwsPortalCredentialProvider {
             // A temporary Secrets Manager outage must not take a previously loaded
             // connector offline. Portal still validates the stale credential and will
             // reject it after revocation, so this remains fail-closed.
-            if (this.cached.length)
+            if (this.cached.length && canUseStaleCredentials(error))
                 return this.cached;
             throw error;
         }
@@ -150,6 +161,54 @@ function isMissingPendingStage(error) {
     if (named.name !== "InvalidRequestException")
         return false;
     return /AWSPENDING|version stage|staging label/i.test(named.message || "");
+}
+const SAFE_ERROR_NAMES = new Set([
+    "AbortError",
+    "AccessDeniedException",
+    "DecryptionFailure",
+    "Error",
+    "InternalFailure",
+    "InternalServiceError",
+    "InvalidParameterException",
+    "InvalidRequestException",
+    "NetworkingError",
+    "RequestTimeout",
+    "ResourceNotFoundException",
+    "ServiceUnavailableException",
+    "ThrottlingException",
+    "TimeoutError",
+    "TooManyRequestsException",
+    "TypeError",
+]);
+function safeErrorName(error) {
+    const candidate = error && typeof error === "object" && "name" in error
+        ? String(error.name || "")
+        : "";
+    return SAFE_ERROR_NAMES.has(candidate) ? candidate : "Error";
+}
+function canUseStaleCredentials(error) {
+    const named = error;
+    if (named.$metadata?.httpStatusCode &&
+        named.$metadata.httpStatusCode >= 500)
+        return true;
+    const name = named.name || "";
+    const code = named.code || "";
+    return ([
+        "ServiceUnavailableException",
+        "InternalServiceError",
+        "InternalFailure",
+        "TimeoutError",
+        "RequestTimeout",
+        "NetworkingError",
+    ].includes(name) ||
+        [
+            "ECONNRESET",
+            "ECONNREFUSED",
+            "EHOSTUNREACH",
+            "ENETUNREACH",
+            "ETIMEDOUT",
+            "EAI_AGAIN",
+        ].includes(code));
 }
 export class StaticPortalCredentialProvider {
     credentials;

@@ -34,7 +34,7 @@ export type {
   PortalCredentialStage,
   PortalServiceCredential,
 } from "./types.js";
-export { PortalError } from "./portal.js";
+export { PortalCredentialError, PortalError } from "./portal.js";
 export {
   AwsPortalCredentialProvider,
   StaticPortalCredentialProvider,
@@ -320,7 +320,9 @@ export function createPortalAuth(config: PortalAuthConfig) {
   // Returns the (possibly refreshed) session, or null if the person is now signed
   // out. An unavailable Portal throws: requireAuth denies that request with 503,
   // keeps the local row, and retries on the next request without extending trust.
-  async function revalidateIfStale(session: Session): Promise<Session | null> {
+  const inFlightRevalidations = new Map<string, Promise<Session | null>>();
+
+  async function revalidateOnce(session: Session): Promise<Session | null> {
     const row = getRow(session.token);
     if (!row) return null; // expired / gone
     // Old portal/google/legacy rows can contain the local v0.2.1 ADMIN_EMAILS
@@ -369,6 +371,18 @@ export function createPortalAuth(config: PortalAuthConfig) {
       context: ctx,
       revalidationHandle: session.revalidationHandle,
     };
+  }
+
+  function revalidateIfStale(session: Session): Promise<Session | null> {
+    const existing = inFlightRevalidations.get(session.token);
+    if (existing) return existing;
+    let tracked: Promise<Session | null>;
+    tracked = revalidateOnce(session).finally(() => {
+      if (inFlightRevalidations.get(session.token) === tracked)
+        inFlightRevalidations.delete(session.token);
+    });
+    inFlightRevalidations.set(session.token, tracked);
+    return tracked;
   }
 
   // --- Express middleware ---------------------------------------------------
@@ -644,7 +658,9 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name), "dev");
   }
 
-  async function revalidateIfStale(session: Session): Promise<Session | null> {
+  const inFlightRevalidations = new Map<string, Promise<Session | null>>();
+
+  async function revalidateUnderLock(session: Session): Promise<Session | null> {
     const row = await getRow(session.token);
     if (!row) return null;
     if (
@@ -688,6 +704,42 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       context: ctx,
       revalidationHandle: session.revalidationHandle,
     };
+  }
+
+  async function revalidateOnce(session: Session): Promise<Session | null> {
+    await ready;
+    // Fresh sessions take the ordinary store-read path without paying for a
+    // distributed advisory lock on every authenticated request. Stale sessions
+    // are read again after the lock is acquired below, which still closes the
+    // cross-instance race.
+    const row = await getRow(session.token);
+    if (!row) return null;
+    if (
+      hasCurrentAuthorityProvenance(row.source) &&
+      Date.now() - row.last_validated < revalidateMs
+    )
+      return rowToSession(row);
+    if (!portalUrl || !serviceAuth.configured()) {
+      if (row.source === "dev") return rowToSession(row);
+      throw new PortalError("Portal access verification isn't configured.");
+    }
+    if (store.withRevalidationLock)
+      return store.withRevalidationLock(session.token, () =>
+        revalidateUnderLock(session)
+      );
+    return revalidateUnderLock(session);
+  }
+
+  function revalidateIfStale(session: Session): Promise<Session | null> {
+    const existing = inFlightRevalidations.get(session.token);
+    if (existing) return existing;
+    let tracked: Promise<Session | null>;
+    tracked = revalidateOnce(session).finally(() => {
+      if (inFlightRevalidations.get(session.token) === tracked)
+        inFlightRevalidations.delete(session.token);
+    });
+    inFlightRevalidations.set(session.token, tracked);
+    return tracked;
   }
 
   function requireAuth(req: PortalAuthedRequest, res: Response, next: NextFunction): void {

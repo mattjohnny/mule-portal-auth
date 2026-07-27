@@ -144,6 +144,18 @@ export interface PortalSessionStore {
     source?: string
   ): Promise<void>;
   sweep(expiredBefore: number): Promise<void>;
+  // Optional cross-process lease for shared stores. The callback must run
+  // while this token's lease is held and the lease must be released on both
+  // resolve and reject. Store methods called inside the callback (get,
+  // updateContext, and delete) must be safe while the lease is held: either
+  // reuse the lease's database connection or avoid monopolizing a connection
+  // they need. Bound lock acquisition so a stuck peer fails closed instead of
+  // waiting forever. Without this hook, async revalidation is coalesced only
+  // inside one Node process.
+  withRevalidationLock?<T>(
+    token: string,
+    callback: () => Promise<T>
+  ): Promise<T>;
 }
 
 export interface AsyncPortalAuthConfig extends Omit<PortalAuthConfig, "db"> {

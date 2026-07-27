@@ -4,6 +4,9 @@ export declare class PortalError extends Error {
     unavailable: boolean;
     constructor(message: string, signedOut?: boolean, unavailable?: boolean);
 }
+export declare class PortalCredentialError extends PortalError {
+    constructor(message?: string);
+}
 export interface PortalClientOpts {
     portalUrl: string;
     appName: string;

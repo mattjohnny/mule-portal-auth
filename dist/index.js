@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { PortalError, PortalServiceAuth, fetchAppDirectory, fetchContext, redeemSso, } from "./portal.js";
 import { defaultCredentialProvider } from "./credentials.js";
-export { PortalError } from "./portal.js";
+export { PortalCredentialError, PortalError } from "./portal.js";
 export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./credentials.js";
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // 8h fallback session TTL (§7)
 const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most every 5 min (§7 R1)
@@ -205,7 +205,8 @@ export function createPortalAuth(config) {
     // Returns the (possibly refreshed) session, or null if the person is now signed
     // out. An unavailable Portal throws: requireAuth denies that request with 503,
     // keeps the local row, and retries on the next request without extending trust.
-    async function revalidateIfStale(session) {
+    const inFlightRevalidations = new Map();
+    async function revalidateOnce(session) {
         const row = getRow(session.token);
         if (!row)
             return null; // expired / gone
@@ -252,6 +253,18 @@ export function createPortalAuth(config) {
             context: ctx,
             revalidationHandle: session.revalidationHandle,
         };
+    }
+    function revalidateIfStale(session) {
+        const existing = inFlightRevalidations.get(session.token);
+        if (existing)
+            return existing;
+        let tracked;
+        tracked = revalidateOnce(session).finally(() => {
+            if (inFlightRevalidations.get(session.token) === tracked)
+                inFlightRevalidations.delete(session.token);
+        });
+        inFlightRevalidations.set(session.token, tracked);
+        return tracked;
     }
     // --- Express middleware ---------------------------------------------------
     function requireAuth(req, res, next) {
@@ -492,7 +505,8 @@ export function createPortalAuthAsync(config) {
     async function devSignIn(email, name = "Dev Admin") {
         return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name), "dev");
     }
-    async function revalidateIfStale(session) {
+    const inFlightRevalidations = new Map();
+    async function revalidateUnderLock(session) {
         const row = await getRow(session.token);
         if (!row)
             return null;
@@ -534,6 +548,39 @@ export function createPortalAuthAsync(config) {
             context: ctx,
             revalidationHandle: session.revalidationHandle,
         };
+    }
+    async function revalidateOnce(session) {
+        await ready;
+        // Fresh sessions take the ordinary store-read path without paying for a
+        // distributed advisory lock on every authenticated request. Stale sessions
+        // are read again after the lock is acquired below, which still closes the
+        // cross-instance race.
+        const row = await getRow(session.token);
+        if (!row)
+            return null;
+        if (hasCurrentAuthorityProvenance(row.source) &&
+            Date.now() - row.last_validated < revalidateMs)
+            return rowToSession(row);
+        if (!portalUrl || !serviceAuth.configured()) {
+            if (row.source === "dev")
+                return rowToSession(row);
+            throw new PortalError("Portal access verification isn't configured.");
+        }
+        if (store.withRevalidationLock)
+            return store.withRevalidationLock(session.token, () => revalidateUnderLock(session));
+        return revalidateUnderLock(session);
+    }
+    function revalidateIfStale(session) {
+        const existing = inFlightRevalidations.get(session.token);
+        if (existing)
+            return existing;
+        let tracked;
+        tracked = revalidateOnce(session).finally(() => {
+            if (inFlightRevalidations.get(session.token) === tracked)
+                inFlightRevalidations.delete(session.token);
+        });
+        inFlightRevalidations.set(session.token, tracked);
+        return tracked;
     }
     function requireAuth(req, res, next) {
         void (async () => {

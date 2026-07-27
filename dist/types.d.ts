@@ -74,6 +74,7 @@ export interface PortalSessionStore {
     delete(token: string): Promise<void>;
     updateContext(token: string, context: Context, validatedAt: number, source?: string): Promise<void>;
     sweep(expiredBefore: number): Promise<void>;
+    withRevalidationLock?<T>(token: string, callback: () => Promise<T>): Promise<T>;
 }
 export interface AsyncPortalAuthConfig extends Omit<PortalAuthConfig, "db"> {
     sessionStore: PortalSessionStore;

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import { OAuth2Client } from "google-auth-library";
-import { createPortalAuth, createPortalAuthAsync, PortalError } from "../dist/index.js";
+import {
+  createPortalAuth,
+  createPortalAuthAsync,
+  PortalCredentialError,
+  PortalError,
+} from "../dist/index.js";
 
 const realFetch = globalThis.fetch;
 
@@ -791,6 +796,276 @@ test("Portal revalidation fails closed and recovers without extending stale trus
   });
 
   globalThis.fetch = realFetch;
+});
+
+test("credential discovery failures never activate cached offline-admin access", async (t) => {
+  const failures = [
+    {
+      name: "IAM access denied",
+      create() {
+        const error = new Error("not authorized");
+        error.name = "AccessDeniedException";
+        return Promise.reject(error);
+      },
+    },
+    {
+      name: "deleted secret",
+      create() {
+        const error = new Error("secret deleted");
+        error.name = "ResourceNotFoundException";
+        return Promise.reject(error);
+      },
+    },
+    {
+      name: "malformed secret",
+      create() {
+        return Promise.reject(
+          new Error("Portal credential AWSCURRENT is not valid JSON.")
+        );
+      },
+    },
+    {
+      name: "provider timeout",
+      create() {
+        return new Promise(() => {});
+      },
+    },
+  ];
+
+  async function exercise(kind, entry) {
+    let enabled = false;
+    const provider = {
+      configured: () => enabled,
+      getCredentials: () => entry.create(),
+    };
+    const common = {
+      appName: "example-app",
+      portalUrl: "https://portal.example",
+      sharedKey: "migration-only-key",
+      credentialProvider: provider,
+      adminEmails: ["ops@themule.ca"],
+      allowOfflineAdmin: true,
+      revalidateMs: 0,
+      portalRequestTimeoutMs: 10,
+    };
+    let auth;
+    let session;
+    let close;
+    if (kind === "sync") {
+      const db = new Database(":memory:");
+      auth = createPortalAuth({ ...common, db });
+      session = auth.devSignIn("ops@themule.ca", "Ops");
+      db.prepare(
+        `UPDATE portal_sessions
+         SET source = 'portal-v2', last_validated = 0,
+             revalidation_handle = ?
+         WHERE token = ?`
+      ).run("handle-handle-handle-handle-handle-123", session.token);
+      session.revalidationHandle =
+        "handle-handle-handle-handle-handle-123";
+      close = () => {
+        auth.close();
+        db.close();
+      };
+    } else {
+      const sessionStore = memorySessionStore();
+      auth = createPortalAuthAsync({ ...common, sessionStore });
+      session = await auth.devSignIn("ops@themule.ca", "Ops");
+      const row = sessionStore.rows.get(session.token);
+      row.source = "portal-v2";
+      row.last_validated = 0;
+      row.revalidation_handle =
+        "handle-handle-handle-handle-handle-123";
+      session.revalidationHandle =
+        "handle-handle-handle-handle-handle-123";
+      close = () => auth.close();
+    }
+    enabled = true;
+    try {
+      await assert.rejects(
+        () => auth.revalidateIfStale(session),
+        (error) => {
+          assert.ok(error instanceof PortalCredentialError);
+          assert.equal(error.unavailable, false);
+          return true;
+        }
+      );
+      const denied = await invoke(auth, session.token);
+      assert.equal(denied.next, false);
+      assert.equal(denied.status, 503);
+    } finally {
+      close();
+    }
+  }
+
+  for (const entry of failures) {
+    await t.test(`sync: ${entry.name}`, () => exercise("sync", entry));
+    await t.test(`async: ${entry.name}`, () => exercise("async", entry));
+  }
+  globalThis.fetch = realFetch;
+});
+
+test("simultaneous stale revalidations share one Portal call and clean up", async (t) => {
+  async function exercise(kind) {
+    let auth;
+    let session;
+    let makeStale;
+    let close;
+    if (kind === "sync") {
+      const db = new Database(":memory:");
+      auth = createPortalAuth({
+        db,
+        appName: "example-app",
+        portalUrl: "https://portal.example",
+        sharedKey: "test-key",
+        revalidateMs: 60_000,
+      });
+      session = auth.devSignIn("manager@themule.ca", "Manager");
+      makeStale = () =>
+        db
+          .prepare(
+            "UPDATE portal_sessions SET last_validated = 0 WHERE token = ?"
+          )
+          .run(session.token);
+      close = () => {
+        auth.close();
+        db.close();
+      };
+    } else {
+      const sessionStore = memorySessionStore();
+      auth = createPortalAuthAsync({
+        sessionStore,
+        appName: "example-app",
+        portalUrl: "https://portal.example",
+        sharedKey: "test-key",
+        revalidateMs: 60_000,
+      });
+      session = await auth.devSignIn("manager@themule.ca", "Manager");
+      makeStale = () => {
+        sessionStore.rows.get(session.token).last_validated = 0;
+      };
+      close = () => auth.close();
+    }
+
+    let calls = 0;
+    let release;
+    makeStale();
+    globalThis.fetch = async () => {
+      calls += 1;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return jsonResponse(context({ ctx_version: 10 }));
+    };
+    try {
+      const requests = [
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+      ];
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls, 1);
+      release();
+      const results = await Promise.all(requests);
+      assert.ok(results.every((result) => result?.context.ctx_version === 10));
+
+      // A successful operation must leave no stuck in-flight entry.
+      makeStale();
+      globalThis.fetch = async () => {
+        calls += 1;
+        throw new Error("Portal offline");
+      };
+      const failed = await Promise.allSettled([
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+        auth.revalidateIfStale(session),
+      ]);
+      assert.equal(calls, 2);
+      assert.ok(failed.every((result) => result.status === "rejected"));
+
+      // A rejected operation must also be removed so the next request retries.
+      globalThis.fetch = async () => {
+        calls += 1;
+        return jsonResponse(context({ ctx_version: 11 }));
+      };
+      const recovered = await auth.revalidateIfStale(session);
+      assert.equal(calls, 3);
+      assert.equal(recovered.context.ctx_version, 11);
+    } finally {
+      close();
+    }
+  }
+
+  await t.test("SQLite connector", () => exercise("sync"));
+  await t.test("async connector", () => exercise("async"));
+  globalThis.fetch = realFetch;
+});
+
+test("the optional async store lease coalesces across connector instances", async () => {
+  const sessionStore = memorySessionStore();
+  const tails = new Map();
+  let lockCalls = 0;
+  sessionStore.withRevalidationLock = async (token, callback) => {
+    lockCalls += 1;
+    const prior = tails.get(token) ?? Promise.resolve();
+    let release;
+    const next = new Promise((resolve) => {
+      release = resolve;
+    });
+    const tail = prior.then(() => next);
+    tails.set(token, tail);
+    await prior;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (tails.get(token) === tail) tails.delete(token);
+    }
+  };
+  const common = {
+    sessionStore,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 60_000,
+  };
+  const first = createPortalAuthAsync(common);
+  const second = createPortalAuthAsync(common);
+  const session = await first.devSignIn(
+    "manager@themule.ca",
+    "Manager"
+  );
+  const fresh = await second.revalidateIfStale(session);
+  assert.equal(fresh.email, session.email);
+  assert.equal(lockCalls, 0, "a fresh session must not acquire the distributed lock");
+  sessionStore.rows.get(session.token).last_validated = 0;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    await new Promise((resolve) => setImmediate(resolve));
+    return jsonResponse(context({ ctx_version: 12 }));
+  };
+  try {
+    const [left, right] = await Promise.all([
+      first.revalidateIfStale(session),
+      second.revalidateIfStale(session),
+    ]);
+    assert.equal(calls, 1);
+    assert.equal(lockCalls, 2, "each process reaches the shared lease for the stale row");
+    assert.equal(left.context.ctx_version, 12);
+    assert.equal(right.context.ctx_version, 12);
+    await first.revalidateIfStale(left);
+    await second.revalidateIfStale(right);
+    assert.equal(
+      lockCalls,
+      2,
+      "the refreshed row returns through the fast path without another lock"
+    );
+  } finally {
+    first.close();
+    second.close();
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("async session stores preserve revoke-now and hard-expiry behavior", async () => {

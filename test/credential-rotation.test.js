@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import Database from "better-sqlite3";
-import { createPortalAuth } from "../dist/index.js";
+import {
+  createPortalAuth,
+  PortalCredentialError,
+} from "../dist/index.js";
 
 const current = {
   schemaVersion: 1,
@@ -171,7 +174,9 @@ test("a cold-cache credential-provider outage fails closed despite a legacy key"
   try {
     await assert.rejects(
       () => auth.signInWithPortalToken("provider-outage-token"),
-      /Couldn't reach the Portal to complete sign-in/
+      (error) =>
+        error instanceof PortalCredentialError &&
+        error.unavailable === false
     );
     assert.deepEqual(seen, []);
   } finally {
@@ -209,7 +214,9 @@ test("an empty configured provider fails closed instead of using the legacy key"
   try {
     await assert.rejects(
       () => auth.signInWithPortalToken("empty-provider-token"),
-      /Couldn't reach the Portal to complete sign-in/
+      (error) =>
+        error instanceof PortalCredentialError &&
+        error.unavailable === false
     );
     assert.deepEqual(seen, []);
   } finally {
@@ -300,7 +307,9 @@ test("a hung cold-cache credential lookup is bounded by the Portal request deadl
     const startedAt = Date.now();
     await assert.rejects(
       () => auth.signInWithPortalToken("cold-cache-token"),
-      /Couldn't reach the Portal to complete sign-in/
+      (error) =>
+        error instanceof PortalCredentialError &&
+        error.unavailable === false
     );
     assert.ok(Date.now() - startedAt < 500, "credential lookup exceeded its request deadline");
     assert.ok(providerSignals[0] instanceof AbortSignal, "proof lookup did not receive a deadline");
@@ -336,7 +345,9 @@ test("the request deadline bounds a legacy provider that ignores abort signals",
     const startedAt = Date.now();
     await assert.rejects(
       () => auth.signInWithPortalToken("ignoring-provider-token"),
-      /Couldn't reach the Portal to complete sign-in/
+      (error) =>
+        error instanceof PortalCredentialError &&
+        error.unavailable === false
     );
     assert.ok(Date.now() - startedAt < 500, "legacy provider escaped the request deadline");
   } finally {
