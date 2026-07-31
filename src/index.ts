@@ -36,6 +36,9 @@ export type {
   PortalServiceCredential,
 } from "./types.js";
 export { PortalCredentialError, PortalError } from "./portal.js";
+export function sessionTokenDigest(token: string): string {
+  return `sha256:${crypto.createHash("sha256").update(token).digest("hex")}`;
+}
 export {
   AwsPortalCredentialProvider,
   StaticPortalCredentialProvider,
@@ -142,6 +145,11 @@ export function createPortalAuth(config: PortalAuthConfig) {
       "ALTER TABLE portal_sessions ADD COLUMN revalidation_handle TEXT NOT NULL DEFAULT ''"
     );
 
+  db.transaction(() => {
+    const rows = db.prepare("SELECT token FROM portal_sessions WHERE token NOT LIKE 'sha256:%'").all() as { token: string }[];
+    const update = db.prepare("UPDATE portal_sessions SET token = ? WHERE token = ?");
+    for (const row of rows) update.run(sessionTokenDigest(row.token), row.token);
+  })();
   // --- Local session store --------------------------------------------------
   function startLocalSession(
     ctx: Context,
@@ -159,7 +167,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
        (token, email, name, context, created_at, expires_at, last_validated, source, revalidation_handle)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      token,
+      sessionTokenDigest(token),
       ctx.email,
       ctx.name,
       JSON.stringify(ctx),
@@ -198,13 +206,13 @@ export function createPortalAuth(config: PortalAuthConfig) {
   }
 
   function getRow(token: string) {
-    const row = db
+    let row = db
       .prepare(
         `SELECT token, email, name, context, expires_at, last_validated, source,
                 revalidation_handle
          FROM portal_sessions WHERE token = ?`
       )
-      .get(token) as
+      .get(sessionTokenDigest(token)) as
       | {
           token: string;
           email: string;
@@ -216,16 +224,24 @@ export function createPortalAuth(config: PortalAuthConfig) {
           revalidation_handle: string;
         }
       | undefined;
+    if (!row && !token.startsWith("sha256:")) {
+      row = db.prepare(
+        `SELECT token, email, name, context, expires_at, last_validated, source, revalidation_handle
+         FROM portal_sessions WHERE token = ?`
+      ).get(token) as typeof row;
+      if (row) db.prepare("UPDATE portal_sessions SET token = ? WHERE token = ?").run(sessionTokenDigest(token), token);
+    }
     if (!row) return null;
+    row.token = token;
     if (Date.now() > row.expires_at) {
-      db.prepare("DELETE FROM portal_sessions WHERE token = ?").run(token);
+      db.prepare("DELETE FROM portal_sessions WHERE token = ?").run(sessionTokenDigest(token));
       return null;
     }
     return row;
   }
 
   function destroy(token: string): void {
-    db.prepare("DELETE FROM portal_sessions WHERE token = ?").run(token);
+    db.prepare("DELETE FROM portal_sessions WHERE token = ?").run(sessionTokenDigest(token));
   }
 
   function saveContext(token: string, ctx: Context): void {
@@ -239,7 +255,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
       ctx.name,
       Date.now(),
       PORTAL_AUTHORITY_SOURCE,
-      token
+      sessionTokenDigest(token)
     );
   }
 

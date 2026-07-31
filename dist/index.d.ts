@@ -3,6 +3,7 @@ import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequ
 export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
 export type { PortalCredentialProvider, PortalCredentialStage, PortalServiceCredential, } from "./types.js";
 export { PortalCredentialError, PortalError } from "./portal.js";
+export declare function sessionTokenDigest(token: string): string;
 export { AwsPortalCredentialProvider, StaticPortalCredentialProvider, } from "./credentials.js";
 export declare function createPortalAuth(config: PortalAuthConfig): {
     signInWithPortalToken: (ssoToken: string) => Promise<Session>;
