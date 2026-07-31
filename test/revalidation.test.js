@@ -7,6 +7,7 @@ import {
   createPortalAuthAsync,
   PortalCredentialError,
   PortalError,
+  sessionTokenDigest,
 } from "../dist/index.js";
 
 const realFetch = globalThis.fetch;
@@ -133,7 +134,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     const db = new Database(":memory:");
     const auth = createPortalAuth({ db, appName: "example-app", revalidateMs: 0 });
     const session = auth.devSignIn("legacy@themule.ca", "Legacy");
-    db.prepare("UPDATE portal_sessions SET source = 'portal' WHERE token = ?").run(session.token);
+    db.prepare("UPDATE portal_sessions SET source = 'portal' WHERE token = ?").run(sessionTokenDigest(session.token));
     const result = await invoke(auth, session.token);
     assert.equal(result.next, false);
     assert.equal(result.status, 503);
@@ -176,7 +177,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     const columns = db.prepare("PRAGMA table_info(portal_sessions)").all();
     assert.equal(columns.some((column) => column.name === "source"), true);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = 'legacy-token'").get().source,
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest("legacy-token")).source,
       "legacy"
     );
     db.close();
@@ -211,7 +212,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run("old-writer-token", "ops@themule.ca", "Ops", JSON.stringify(legacyContext), now, now + 60_000, now);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = 'old-writer-token'").get().source,
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get("old-writer-token").source,
       "legacy"
     );
 
@@ -226,7 +227,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     const verified = await invoke(auth, "old-writer-token");
     assert.equal(verified.next, true);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = 'old-writer-token'").get().source,
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest("old-writer-token")).source,
       "portal-v2"
     );
     db.close();
@@ -272,7 +273,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     assert.equal(denied.next, false);
     assert.equal(denied.status, 503);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = 'legacy-token'").get().source,
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest("legacy-token")).source,
       "legacy"
     );
 
@@ -280,11 +281,11 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     const verified = await invoke(auth, "legacy-token");
     assert.equal(verified.next, true);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = 'legacy-token'").get().source,
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest("legacy-token")).source,
       "portal-v2"
     );
 
-    db.prepare("UPDATE portal_sessions SET last_validated = 0 WHERE token = 'legacy-token'").run();
+    db.prepare("UPDATE portal_sessions SET last_validated = 0 WHERE token = ?").run(sessionTokenDigest("legacy-token"));
     globalThis.fetch = async () => {
       throw new Error("offline again");
     };
@@ -312,7 +313,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
       `UPDATE portal_sessions
        SET context = ?, source = 'portal', last_validated = ?
        WHERE token = ?`
-    ).run(JSON.stringify(elevated), Date.now(), session.token);
+    ).run(JSON.stringify(elevated), Date.now(), sessionTokenDigest(session.token));
 
     globalThis.fetch = async () => {
       throw new Error("offline");
@@ -335,7 +336,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     assert.equal(verified.req.portal.context.role, "manager");
     assert.equal(verified.req.portal.context.is_admin, false);
     assert.equal(
-      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(session.token)
+      db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest(session.token))
         .source,
       "portal-v2"
     );
@@ -429,7 +430,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
     ]);
     assert.equal(
       JSON.parse(
-        db.prepare("SELECT context FROM portal_sessions WHERE token = ?").get(session.token).context
+        db.prepare("SELECT context FROM portal_sessions WHERE token = ?").get(sessionTokenDigest(session.token)).context
       ).is_admin,
       false
     );
@@ -638,7 +639,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
   await t.test("hard session expiry still destroys the local session", async () => {
     const { db, auth } = configured({ revalidateMs: 60_000 });
     const session = auth.devSignIn("manager@themule.ca", "Manager");
-    db.prepare("UPDATE portal_sessions SET expires_at = 0 WHERE token = ?").run(session.token);
+    db.prepare("UPDATE portal_sessions SET expires_at = 0 WHERE token = ?").run(sessionTokenDigest(session.token));
     const result = await invoke(auth, session.token);
     assert.equal(result.status, 401);
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM portal_sessions").get().n, 0);
@@ -766,7 +767,7 @@ test("Portal revalidation fails closed and recovers without extending stale trus
       const session = await retryable.auth.signInWithGoogle("google-token");
       assert.equal(session.context.is_admin, true);
       assert.equal(
-        retryable.db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(session.token).source,
+        retryable.db.prepare("SELECT source FROM portal_sessions WHERE token = ?").get(sessionTokenDigest(session.token)).source,
         "offline-admin"
       );
       retryable.db.close();
@@ -860,7 +861,7 @@ test("credential discovery failures never activate cached offline-admin access",
          SET source = 'portal-v2', last_validated = 0,
              revalidation_handle = ?
          WHERE token = ?`
-      ).run("handle-handle-handle-handle-handle-123", session.token);
+      ).run("handle-handle-handle-handle-handle-123", sessionTokenDigest(session.token));
       session.revalidationHandle =
         "handle-handle-handle-handle-handle-123";
       close = () => {
@@ -926,7 +927,7 @@ test("simultaneous stale revalidations share one Portal call and clean up", asyn
           .prepare(
             "UPDATE portal_sessions SET last_validated = 0 WHERE token = ?"
           )
-          .run(session.token);
+          .run(sessionTokenDigest(session.token));
       close = () => {
         auth.close();
         db.close();
@@ -1208,7 +1209,7 @@ test("direct Google sign-in respects the credential-migration boundary", async (
           `SELECT source, revalidation_handle, created_at, expires_at
            FROM portal_sessions WHERE token = ?`
         )
-        .get(session.token);
+        .get(sessionTokenDigest(session.token));
       assert.equal(row.source, "google-v2");
       assert.equal(row.revalidation_handle, "");
       assert.equal(row.expires_at - row.created_at, 8 * 60 * 60 * 1000);
@@ -1354,4 +1355,17 @@ test("a 503 records whether the Portal was actually unavailable", async () => {
       "only an allow-listed error name may be logged"
     );
   }
+});
+
+test("SQLite stores only a digest that cannot be replayed as a bearer", async () => {
+  const db = new Database(":memory:");
+  const auth = createPortalAuth({ db, appName: "example-app" });
+  const session = auth.devSignIn("manager@themule.ca", "Manager");
+  const stored = db.prepare("SELECT token FROM portal_sessions").get().token;
+  assert.match(stored, /^sha256:[a-f0-9]{64}$/);
+  assert.notEqual(stored, session.token);
+  assert.equal((await invoke(auth, stored)).status, 401);
+  assert.equal((await invoke(auth, session.token)).next, true);
+  auth.close();
+  db.close();
 });
