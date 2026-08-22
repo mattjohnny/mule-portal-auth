@@ -872,7 +872,7 @@ test("credential discovery failures never activate cached offline-admin access",
       const sessionStore = memorySessionStore();
       auth = createPortalAuthAsync({ ...common, sessionStore });
       session = await auth.devSignIn("ops@themule.ca", "Ops");
-      const row = sessionStore.rows.get(session.token);
+      const row = sessionStore.rows.get(sessionTokenDigest(session.token));
       row.source = "portal-v2";
       row.last_validated = 0;
       row.revalidation_handle =
@@ -943,7 +943,7 @@ test("simultaneous stale revalidations share one Portal call and clean up", asyn
       });
       session = await auth.devSignIn("manager@themule.ca", "Manager");
       makeStale = () => {
-        sessionStore.rows.get(session.token).last_validated = 0;
+        sessionStore.rows.get(sessionTokenDigest(session.token)).last_validated = 0;
       };
       close = () => auth.close();
     }
@@ -1039,7 +1039,7 @@ test("the optional async store lease coalesces across connector instances", asyn
   const fresh = await second.revalidateIfStale(session);
   assert.equal(fresh.email, session.email);
   assert.equal(lockCalls, 0, "a fresh session must not acquire the distributed lock");
-  sessionStore.rows.get(session.token).last_validated = 0;
+  sessionStore.rows.get(sessionTokenDigest(session.token)).last_validated = 0;
   let calls = 0;
   globalThis.fetch = async () => {
     calls += 1;
@@ -1107,7 +1107,7 @@ test("async session stores preserve revoke-now and hard-expiry behavior", async 
   assert.equal(sessionStore.rows.size, 0);
 
   const expiring = await auth.devSignIn("manager@themule.ca", "Manager");
-  sessionStore.rows.get(expiring.token).expires_at = 0;
+  sessionStore.rows.get(sessionTokenDigest(expiring.token)).expires_at = 0;
   const expired = await invoke(auth, expiring.token);
   assert.equal(expired.status, 401);
   assert.equal(sessionStore.rows.size, 0);
@@ -1127,7 +1127,7 @@ test("async v0.2.1 elevated rows require one live authority recheck", async () =
     revalidateMs: 60_000,
   });
   const session = await auth.devSignIn("ops@themule.ca", "Ops");
-  const row = sessionStore.rows.get(session.token);
+  const row = sessionStore.rows.get(sessionTokenDigest(session.token));
   row.source = "portal";
   row.last_validated = Date.now();
   row.context = JSON.stringify(
@@ -1160,7 +1160,7 @@ test("async v0.2.1 elevated rows require one live authority recheck", async () =
   const verified = await invoke(auth, session.token);
   assert.equal(verified.next, true);
   assert.equal(verified.req.portal.context.is_admin, false);
-  assert.equal(sessionStore.rows.get(session.token).source, "portal-v2");
+  assert.equal(sessionStore.rows.get(sessionTokenDigest(session.token)).source, "portal-v2");
   auth.close();
   globalThis.fetch = realFetch;
 });
@@ -1294,7 +1294,7 @@ test("a 503 records whether the Portal was actually unavailable", async () => {
     const sessionStore = { ...memorySessionStore(), ...storeOverrides };
     const auth = createPortalAuthAsync({ ...common, sessionStore });
     const session = await auth.devSignIn("ops@themule.ca", "Ops");
-    const row = sessionStore.rows.get(session.token);
+    const row = sessionStore.rows.get(sessionTokenDigest(session.token));
     row.source = "portal-v2";
     row.last_validated = 0;
 
@@ -1368,4 +1368,224 @@ test("SQLite stores only a digest that cannot be replayed as a bearer", async ()
   assert.equal((await invoke(auth, session.token)).next, true);
   auth.close();
   db.close();
+});
+
+// --- v0.2.4: the async store hashes at rest too ----------------------------
+
+// Seed a pre-v0.2.4 session: a row keyed by the RAW browser token, exactly as
+// a connector before this release would have written it.
+function seedLegacyRawRow(store, rawToken, ctx, overrides = {}) {
+  const now = Date.now();
+  store.rows.set(rawToken, {
+    token: rawToken,
+    email: ctx.email,
+    name: ctx.name,
+    context: JSON.stringify(ctx),
+    created_at: now,
+    expires_at: now + 8 * 60 * 60 * 1000,
+    last_validated: now,
+    source: "dev",
+    revalidation_handle: "",
+    ...overrides,
+  });
+}
+
+test("async insert stores the digest, not the raw token", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const session = await auth.devSignIn("manager@themule.ca", "Manager");
+  const digest = sessionTokenDigest(session.token);
+  const storedRow = sessionStore.rows.get(digest);
+  assert.ok(storedRow, "the row is stored under the digest key");
+  assert.equal(storedRow.token, digest);
+  assert.notEqual(storedRow.token, session.token);
+  assert.equal(sessionStore.rows.has(session.token), false, "no raw-token row exists");
+  auth.close();
+});
+
+test("async get resolves by raw token and returns the raw token on the session", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const session = await auth.devSignIn("manager@themule.ca", "Manager");
+  const result = await invoke(auth, session.token);
+  assert.equal(result.next, true);
+  assert.equal(result.req.portal.token, session.token);
+  assert.notEqual(result.req.portal.token, sessionTokenDigest(session.token));
+  auth.close();
+});
+
+test("a copied stored digest is NOT accepted as a cookie", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const session = await auth.devSignIn("manager@themule.ca", "Manager");
+  const digest = sessionTokenDigest(session.token);
+  // The at-rest value must be inert as a bearer: its own digest misses, and the
+  // sha256: prefix disqualifies it from the raw legacy fallback.
+  const replay = await invoke(auth, digest);
+  assert.equal(replay.status, 401);
+  // The genuine raw cookie still works.
+  assert.equal((await invoke(auth, session.token)).next, true);
+  auth.close();
+});
+
+test("a legacy raw row authenticates once and is upgraded in place", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const raw = "a".repeat(64); // looks like a hex bearer, not a sha256: digest
+  seedLegacyRawRow(sessionStore, raw, context());
+
+  const result = await invoke(auth, raw);
+  assert.equal(result.next, true, "the legacy raw cookie authenticates");
+  assert.equal(result.req.portal.token, raw);
+
+  const digest = sessionTokenDigest(raw);
+  assert.equal(sessionStore.rows.has(digest), true, "row is now stored under the digest");
+  assert.equal(sessionStore.rows.has(raw), false, "the raw-token row is gone");
+  auth.close();
+});
+
+test("sign-out removes the session for a digest-stored row", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const session = await auth.devSignIn("manager@themule.ca", "Manager");
+  assert.equal(sessionStore.rows.size, 1);
+  await auth.logout(session.token);
+  assert.equal(sessionStore.rows.size, 0);
+  assert.equal((await invoke(auth, session.token)).status, 401);
+  auth.close();
+});
+
+test("sign-out removes the session for a legacy raw row", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const raw = "b".repeat(64);
+  seedLegacyRawRow(sessionStore, raw, context());
+  assert.equal(sessionStore.rows.size, 1);
+  // A never-read legacy session must still be signable out even though it lives
+  // under the raw key, not the digest.
+  await auth.logout(raw);
+  assert.equal(sessionStore.rows.size, 0);
+  assert.equal((await invoke(auth, raw)).status, 401);
+  auth.close();
+});
+
+test("the advisory-lock key is the raw token, stable across a migration", async () => {
+  const sessionStore = memorySessionStore();
+  const lockTokens = [];
+  sessionStore.withRevalidationLock = async (token, callback) => {
+    lockTokens.push(token);
+    return callback();
+  };
+  const auth = createPortalAuthAsync({
+    sessionStore,
+    appName: "example-app",
+    portalUrl: "https://portal.example",
+    sharedKey: "test-key",
+    revalidateMs: 60_000,
+  });
+  const raw = "c".repeat(64);
+  // A stale, pre-v0.2.4 raw row that must go through a live recheck (and so the
+  // distributed lock) on the very next request.
+  seedLegacyRawRow(sessionStore, raw, context(), {
+    source: "portal-v2",
+    last_validated: 0,
+  });
+  globalThis.fetch = async () => jsonResponse(context({ ctx_version: 5 }));
+  try {
+    // First request: the row is still legacy-raw. It migrates AND revalidates.
+    const first = await invoke(auth, raw);
+    assert.equal(first.next, true);
+    assert.equal(sessionStore.rows.has(sessionTokenDigest(raw)), true);
+
+    // Second request: the row is now digest-stored. Force it stale again.
+    sessionStore.rows.get(sessionTokenDigest(raw)).last_validated = 0;
+    const second = await invoke(auth, raw);
+    assert.equal(second.next, true);
+
+    assert.ok(lockTokens.length >= 2, "the lock was taken before and after migration");
+    for (const token of lockTokens)
+      assert.equal(token, raw, "the advisory-lock key must always be the raw token");
+  } finally {
+    globalThis.fetch = realFetch;
+    auth.close();
+  }
+});
+
+test("a migration write failure still authenticates", async () => {
+  const sessionStore = memorySessionStore();
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const raw = "d".repeat(64);
+  seedLegacyRawRow(sessionStore, raw, context());
+  // Make the lazy-migration write fail. Because the connector inserts the
+  // digest row BEFORE deleting the raw row, an insert failure leaves the raw
+  // row intact — the session both authenticates now and survives for a retry.
+  sessionStore.insert = async () => {
+    throw new Error("store write failed");
+  };
+  const result = await invoke(auth, raw);
+  assert.equal(result.next, true, "a failed migration must not 401 a valid session");
+  assert.equal(result.req.portal.email, context().email);
+  assert.equal(sessionStore.rows.has(raw), true, "the raw row survives a failed migration");
+  auth.close();
+});
+
+test("concurrent requests on the same legacy raw cookie both resolve (migration race)", async () => {
+  // Every active session on the v0.2.4 deploy is a raw row, and browsers fire
+  // parallel requests on page load, so two requests carry the same legacy raw
+  // cookie at once. Force the exact hazardous interleave: one request migrates
+  // (insert digest, delete raw) in the window between the other's digest miss
+  // and its raw lookup. Both must resolve — neither may 401.
+  const raw = "e".repeat(64);
+  const digest = sessionTokenDigest(raw);
+  const rows = new Map();
+  const now = Date.now();
+  rows.set(raw, {
+    token: raw,
+    email: context().email,
+    name: context().name,
+    context: JSON.stringify(context()),
+    created_at: now,
+    expires_at: now + 8 * 60 * 60 * 1000,
+    last_validated: now,
+    source: "dev",
+    revalidation_handle: "",
+  });
+
+  let rawGets = 0;
+  let signalRawDeleted;
+  const rawDeleted = new Promise((resolve) => {
+    signalRawDeleted = resolve;
+  });
+  const sessionStore = {
+    async init() {},
+    async insert(row) {
+      rows.set(row.token, { ...row });
+    },
+    async delete(token) {
+      rows.delete(token);
+      if (token === raw) signalRawDeleted(); // the migrator just deleted the raw row
+    },
+    async get(token) {
+      if (token === raw) {
+        rawGets += 1;
+        // The first raw lookup belongs to the migrator: it sees the legacy row
+        // and goes on to insert the digest + delete the raw row. Every later
+        // raw lookup is a racing request; hold it until the migrator has
+        // deleted the raw row so it reproduces the miss-after-delete window.
+        if (rawGets > 1) await rawDeleted;
+      }
+      const row = rows.get(token);
+      return row ? { ...row } : null;
+    },
+    async updateContext() {},
+    async sweep() {},
+  };
+
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const [a, b] = await Promise.all([invoke(auth, raw), invoke(auth, raw)]);
+  assert.equal(a.next, true, "the migrating request resolves");
+  assert.equal(b.next, true, "the racing request must NOT 401 on a live session");
+  assert.equal(rows.has(digest), true, "the row ends up migrated under the digest");
+  assert.equal(rows.has(raw), false, "the raw row is gone after migration");
+  auth.close();
 });

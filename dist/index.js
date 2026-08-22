@@ -409,8 +409,12 @@ export function createPortalAuthAsync(config) {
         await ready;
         const token = crypto.randomBytes(32).toString("hex");
         const now = Date.now();
+        // Hash at the store boundary: the row's token column holds only the digest,
+        // never the raw browser bearer. The Session below still returns the RAW
+        // token — that is the cookie the browser sends back, and it hashes to the
+        // stored digest on the way in.
         await store.insert({
-            token,
+            token: sessionTokenDigest(token),
             email: ctx.email,
             name: ctx.name,
             context: JSON.stringify(ctx),
@@ -440,24 +444,81 @@ export function createPortalAuthAsync(config) {
             revalidationHandle: row.revalidation_handle || undefined,
         };
     }
+    // `token` is always the RAW browser bearer. Rows are stored under the digest,
+    // so look up by digest first, then fall back once to a legacy raw-token row
+    // (a pre-v0.2.4 session) and migrate it in place. The row this returns always
+    // carries the RAW token again (see the row.token reset below).
     async function getRow(token) {
         await ready;
-        const row = await store.get(token);
+        const digest = sessionTokenDigest(token);
+        let row = await store.get(digest);
+        if (!row && !token.startsWith("sha256:")) {
+            // Legacy fallback. The startsWith guard is load-bearing: without it a
+            // caller could replay a stolen stored digest as a bearer — its own
+            // digest would miss, but this raw lookup would then hit the stored
+            // digest row. A bearer that already looks like a digest never gets the
+            // raw fallback, so a copied at-rest value is not a usable cookie.
+            const legacy = await store.get(token);
+            if (legacy) {
+                row = legacy;
+                // Best-effort lazy migration to digest-at-rest, using only existing
+                // store methods. Ordering: INSERT the digest row FIRST, then DELETE the
+                // raw row. The reverse order (delete-then-insert) would leave a window
+                // where neither row exists. A failed migration must never revoke a live
+                // session: hashing at rest is the goal, so we swallow the error and the
+                // raw row stays authoritative for a later retry. The *concurrent* case
+                // (another in-flight request racing this same migration) is handled by
+                // the digest re-read below, not by waiting for the next request.
+                try {
+                    await store.insert({ ...legacy, token: digest });
+                    await store.delete(token);
+                }
+                catch {
+                    /* keep the raw row authoritative; migration retries next request */
+                }
+            }
+            if (!row) {
+                // Concurrent-migration re-read. Every active session on the v0.2.4
+                // deploy is still a raw row, and browsers fire parallel requests on
+                // page load, so two requests can carry the same legacy raw cookie at
+                // once. If a racing request migrated the row (insert digest, delete
+                // raw) in the window between our digest miss above and our raw lookup
+                // just now, our raw lookup misses a row that now lives only under the
+                // digest. Re-read the digest once to catch it — otherwise a valid live
+                // session eats a spurious 401. Stays inside the sha256: guard so a
+                // replayed at-rest digest still gets no second bite.
+                row = await store.get(digest);
+            }
+        }
         if (!row)
             return null;
+        // Downstream (rowToSession, requireAuth, and especially the advisory-lock
+        // key in withRevalidationLock / sessionLockKeys) must see the RAW token, so
+        // the lock key stays identical across overlapping Render instances. Mirror
+        // the sync path, which restores row.token to the raw value before use.
+        row.token = token;
         if (Date.now() > row.expires_at) {
-            await store.delete(token);
+            // Delete by digest (where a live or just-migrated row lives). Any rare
+            // orphaned raw row from a failed migration is expired too and the sweep
+            // clears it.
+            await store.delete(digest);
             return null;
         }
         return row;
     }
     async function destroy(token) {
         await ready;
+        await store.delete(sessionTokenDigest(token));
+        // Legacy cleanup: a pre-v0.2.4 row never read (thus never migrated) still
+        // sits under the raw token, so delete that key too — otherwise a sign-out
+        // before the first request could not remove it. token is the raw bearer,
+        // so this is a distinct key from the digest above.
         await store.delete(token);
     }
     async function saveContext(token, ctx) {
         await ready;
-        await store.updateContext(token, ctx, Date.now(), PORTAL_AUTHORITY_SOURCE);
+        // Migrated / digest-stored rows live under the digest; token is raw here.
+        await store.updateContext(sessionTokenDigest(token), ctx, Date.now(), PORTAL_AUTHORITY_SOURCE);
     }
     async function sweep() {
         try {
