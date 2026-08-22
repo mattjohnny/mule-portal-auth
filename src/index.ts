@@ -616,19 +616,30 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
         row = legacy;
         // Best-effort lazy migration to digest-at-rest, using only existing
         // store methods. Ordering: INSERT the digest row FIRST, then DELETE the
-        // raw row. If we are interrupted between the two writes, the session is
-        // still resolvable on the next request — either the digest row already
-        // exists, or (if the insert threw) the raw row survives and this same
-        // fallback re-runs. The reverse order (delete-then-insert) would leave
-        // a window where neither row exists and a valid session 401s. A failed
-        // migration must never revoke a live session: hashing at rest is the
-        // goal, so we swallow the error and simply retry next request.
+        // raw row. The reverse order (delete-then-insert) would leave a window
+        // where neither row exists. A failed migration must never revoke a live
+        // session: hashing at rest is the goal, so we swallow the error and the
+        // raw row stays authoritative for a later retry. The *concurrent* case
+        // (another in-flight request racing this same migration) is handled by
+        // the digest re-read below, not by waiting for the next request.
         try {
           await store.insert({ ...legacy, token: digest });
           await store.delete(token);
         } catch {
           /* keep the raw row authoritative; migration retries next request */
         }
+      }
+      if (!row) {
+        // Concurrent-migration re-read. Every active session on the v0.2.4
+        // deploy is still a raw row, and browsers fire parallel requests on
+        // page load, so two requests can carry the same legacy raw cookie at
+        // once. If a racing request migrated the row (insert digest, delete
+        // raw) in the window between our digest miss above and our raw lookup
+        // just now, our raw lookup misses a row that now lives only under the
+        // digest. Re-read the digest once to catch it — otherwise a valid live
+        // session eats a spurious 401. Stays inside the sha256: guard so a
+        // replayed at-rest digest still gets no second bite.
+        row = await store.get(digest);
       }
     }
     if (!row) return null;

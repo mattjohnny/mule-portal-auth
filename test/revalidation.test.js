@@ -1528,3 +1528,64 @@ test("a migration write failure still authenticates", async () => {
   assert.equal(sessionStore.rows.has(raw), true, "the raw row survives a failed migration");
   auth.close();
 });
+
+test("concurrent requests on the same legacy raw cookie both resolve (migration race)", async () => {
+  // Every active session on the v0.2.4 deploy is a raw row, and browsers fire
+  // parallel requests on page load, so two requests carry the same legacy raw
+  // cookie at once. Force the exact hazardous interleave: one request migrates
+  // (insert digest, delete raw) in the window between the other's digest miss
+  // and its raw lookup. Both must resolve — neither may 401.
+  const raw = "e".repeat(64);
+  const digest = sessionTokenDigest(raw);
+  const rows = new Map();
+  const now = Date.now();
+  rows.set(raw, {
+    token: raw,
+    email: context().email,
+    name: context().name,
+    context: JSON.stringify(context()),
+    created_at: now,
+    expires_at: now + 8 * 60 * 60 * 1000,
+    last_validated: now,
+    source: "dev",
+    revalidation_handle: "",
+  });
+
+  let rawGets = 0;
+  let signalRawDeleted;
+  const rawDeleted = new Promise((resolve) => {
+    signalRawDeleted = resolve;
+  });
+  const sessionStore = {
+    async init() {},
+    async insert(row) {
+      rows.set(row.token, { ...row });
+    },
+    async delete(token) {
+      rows.delete(token);
+      if (token === raw) signalRawDeleted(); // the migrator just deleted the raw row
+    },
+    async get(token) {
+      if (token === raw) {
+        rawGets += 1;
+        // The first raw lookup belongs to the migrator: it sees the legacy row
+        // and goes on to insert the digest + delete the raw row. Every later
+        // raw lookup is a racing request; hold it until the migrator has
+        // deleted the raw row so it reproduces the miss-after-delete window.
+        if (rawGets > 1) await rawDeleted;
+      }
+      const row = rows.get(token);
+      return row ? { ...row } : null;
+    },
+    async updateContext() {},
+    async sweep() {},
+  };
+
+  const auth = createPortalAuthAsync({ sessionStore, appName: "example-app" });
+  const [a, b] = await Promise.all([invoke(auth, raw), invoke(auth, raw)]);
+  assert.equal(a.next, true, "the migrating request resolves");
+  assert.equal(b.next, true, "the racing request must NOT 401 on a live session");
+  assert.equal(rows.has(digest), true, "the row ends up migrated under the digest");
+  assert.equal(rows.has(raw), false, "the raw row is gone after migration");
+  auth.close();
+});
