@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: production: all HTTP transport paths reject without sending credentials
+ok 1 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 188.175
+  type: 'test'
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 2 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 128.3693
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 3 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 118.5341
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+ok 4 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 136.1936
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+ok 5 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 222.845
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+ok 6 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 110.103
+  type: 'test'
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+ok 7 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 2654.3807
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4437.9234

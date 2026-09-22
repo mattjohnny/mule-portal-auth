@@ -1,0 +1,68 @@
+TAP version 13
+# Subtest: production: all HTTP transport paths reject without sending credentials
+not ok 1 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 239.3581
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\portal-transport.test.js:57:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    unexpected cleartext requests: /api/credential-proof, /api/app-directory?app=transport-test, /api/redeem-sso, /api/credential-proof, /api/app-directory?app=transport-test, /api/redeem-sso, /api/credential-proof, /api/redeem-sso, /api/context, /api/app-directory?app=transport-test, /api/context, /api/context?email=test%40example.invalid&app=transport-test, /api/app-directory?app=transport-test, /api/redeem-sso, /api/context
+
+    15 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 15
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/portal-transport.test.js:78:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 2 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 117.4207
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 3 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 124.8014
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+ok 4 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 119.9371
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+ok 5 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 77.0753
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+ok 6 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 94.087
+  type: 'test'
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+ok 7 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 2168.4668
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 6
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3303.9988

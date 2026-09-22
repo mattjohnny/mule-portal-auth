@@ -60,6 +60,9 @@ export class PortalServiceAuth {
         this.provider?.close?.();
     }
     async request(endpoint, init, mode = "normal") {
+        // Validate before credential discovery or attachment, including direct
+        // transport callers. Configuration errors must not become Portal outages.
+        portalEndpoint(endpoint, "");
         if (mode === "legacy-only") {
             if (!this.legacyKey)
                 throw new PortalError("Legacy Portal authentication is unavailable.");
@@ -127,7 +130,9 @@ export class PortalServiceAuth {
         const headers = new Headers(init.headers);
         headers.delete("x-portal-key");
         headers.set("Authorization", `PortalCredential ${credential.credentialId}.${credential.secret}`);
-        return { ...init, headers };
+        // Never forward credentials or replay SSO/handle bodies through a redirect.
+        // Manual mode leaves 3xx available to the existing non-outage denial path.
+        return { ...init, headers, redirect: "manual" };
     }
     withLegacy(init) {
         const headers = new Headers(init.headers);
@@ -135,7 +140,7 @@ export class PortalServiceAuth {
         headers.set("x-portal-key", this.legacyKey);
         if (this.appName)
             headers.set("x-portal-app", this.appName);
-        return { ...init, headers };
+        return { ...init, headers, redirect: "manual" };
     }
     async proveCredentials() {
         if (!this.provider?.configured())
@@ -270,6 +275,10 @@ function portalEndpoint(portalUrl, path) {
     }
     if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:")
         throw new PortalError("Portal URL must use HTTP or HTTPS.");
+    if (endpoint.protocol !== "https:" &&
+        (process.env.NODE_ENV === "production" || process.env.RENDER)) {
+        throw new PortalError("Portal URL must use HTTPS in production or on Render.");
+    }
     return endpoint;
 }
 // Keep outage-only break glass narrow. Authentication/protocol failures must

@@ -41,6 +41,17 @@ Do not begin the remaining fleet bump until all three steps are complete.
 
 ## Use
 
+Portal requests require HTTPS when `NODE_ENV=production` or `RENDER` is nonempty.
+An HTTP URL fails locally with `PortalError.unavailable === false`; it cannot
+activate outage-only access. HTTP remains available for local development and
+tests outside those environments. This check occurs when a Portal request is
+made, including background credential proof; construction alone is not a URL
+validation check.
+
+Portal responses must be direct: redirects are never followed for app credentials
+or legacy keys, including SSO bodies, revalidation handles and credential proof.
+Configure the final Portal HTTPS URL instead of a redirecting alias.
+
 ```ts
 import Database from "better-sqlite3";
 import { createPortalAuth } from "@mule/portal-auth";
