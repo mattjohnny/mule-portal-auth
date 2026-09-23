@@ -1,0 +1,669 @@
+
+> @mule/portal-auth@0.2.4 test
+> npm run build && node --test test/*.test.js
+
+
+> @mule/portal-auth@0.2.4 build
+> npm run clean && tsc -p tsconfig.json
+
+
+> @mule/portal-auth@0.2.4 clean
+> node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"
+
+TAP version 13
+# Subtest: AWS credentials are parsed, app-bound, and tolerate a missing pending stage
+ok 1 - AWS credentials are parsed, app-bound, and tolerate a missing pending stage
+  ---
+  duration_ms: 3.7404
+  type: 'test'
+  ...
+# Subtest: AWS credentials reject malformed values and another app's binding
+ok 2 - AWS credentials reject malformed values and another app's binding
+  ---
+  duration_ms: 2.0569
+  type: 'test'
+  ...
+# Subtest: a refresh failure returns only a previously loaded stale cache
+ok 3 - a refresh failure returns only a previously loaded stale cache
+  ---
+  duration_ms: 0.5879
+  type: 'test'
+  ...
+# Subtest: hard current-stage failures never fall back to a stale credential
+    # Subtest: IAM access denied
+    ok 1 - IAM access denied
+      ---
+      duration_ms: 0.6165
+      type: 'test'
+      ...
+    # Subtest: deleted secret
+    ok 2 - deleted secret
+      ---
+      duration_ms: 0.4619
+      type: 'test'
+      ...
+    # Subtest: malformed current secret
+    ok 3 - malformed current secret
+      ---
+      duration_ms: 0.5004
+      type: 'test'
+      ...
+    1..3
+ok 4 - hard current-stage failures never fall back to a stale credential
+  ---
+  duration_ms: 2.3103
+  type: 'test'
+  ...
+# Subtest: a valid current credential survives independent pending failures
+    # Subtest: pending IAM failure
+    ok 1 - pending IAM failure
+      ---
+      duration_ms: 7.1435
+      type: 'test'
+      ...
+    # Subtest: malformed pending secret
+    ok 2 - malformed pending secret
+      ---
+      duration_ms: 0.9836
+      type: 'test'
+      ...
+    # Subtest: secret-shaped custom error name
+    ok 3 - secret-shaped custom error name
+      ---
+      duration_ms: 0.5268
+      type: 'test'
+      ...
+    1..3
+ok 5 - a valid current credential survives independent pending failures
+  ---
+  duration_ms: 11.6383
+  type: 'test'
+  ...
+# Subtest: caller abort is not ignored after current while pending is loading
+ok 6 - caller abort is not ignored after current while pending is loading
+  ---
+  duration_ms: 24.7083
+  type: 'test'
+  ...
+# Subtest: concurrent cold-cache requests coalesce into one Secrets Manager load
+ok 7 - concurrent cold-cache requests coalesce into one Secrets Manager load
+  ---
+  duration_ms: 0.8536
+  type: 'test'
+  ...
+# Subtest: one caller's deadline cannot cancel another coalesced AWS waiter
+ok 8 - one caller's deadline cannot cancel another coalesced AWS waiter
+  ---
+  duration_ms: 1.0016
+  type: 'test'
+  ...
+# Subtest: an abort reaches Secrets Manager and never returns stale cache
+ok 9 - an abort reaches Secrets Manager and never returns stale cache
+  ---
+  duration_ms: 0.676
+  type: 'test'
+  ...
+# Subtest: a low-traffic connector synthetically proves pending credentials
+ok 10 - a low-traffic connector synthetically proves pending credentials
+  ---
+  duration_ms: 72.5665
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-22T23:26:44.826Z","level":"warn","event":"portal_credential_proof_discovery_failed","error_name":"Error"}
+# Subtest: unregistered or rejected pending credentials fall back to current
+ok 11 - unregistered or rejected pending credentials fall back to current
+  ---
+  duration_ms: 63.6113
+  type: 'test'
+  ...
+# Subtest: a cold-cache credential-provider outage fails closed despite a legacy key
+ok 12 - a cold-cache credential-provider outage fails closed despite a legacy key
+  ---
+  duration_ms: 13.0761
+  type: 'test'
+  ...
+# Subtest: an empty configured provider fails closed instead of using the legacy key
+ok 13 - an empty configured provider fails closed instead of using the legacy key
+  ---
+  duration_ms: 4.7355
+  type: 'test'
+  ...
+# Subtest: a legacy-only configuration still authenticates with the shared key
+ok 14 - a legacy-only configuration still authenticates with the shared key
+  ---
+  duration_ms: 7.447
+  type: 'test'
+  ...
+# Subtest: a hung cold-cache credential lookup is bounded by the Portal request deadline
+ok 15 - a hung cold-cache credential lookup is bounded by the Portal request deadline
+  ---
+  duration_ms: 20.3382
+  type: 'test'
+  ...
+# Subtest: the request deadline bounds a legacy provider that ignores abort signals
+ok 16 - the request deadline bounds a legacy provider that ignores abort signals
+  ---
+  duration_ms: 31.5919
+  type: 'test'
+  ...
+# Subtest: explicit credential rejection never falls back to the legacy key
+ok 17 - explicit credential rejection never falls back to the legacy key
+  ---
+  duration_ms: 16.2916
+  type: 'test'
+  ...
+# Subtest: a refresh outage after a 401 still fails closed
+ok 18 - a refresh outage after a 401 still fails closed
+  ---
+  duration_ms: 14.2235
+  type: 'test'
+  ...
+# Subtest: app directory reads use the app-bound credential
+ok 19 - app directory reads use the app-bound credential
+  ---
+  duration_ms: 2.306
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-22T23:26:49.882Z","level":"warn","event":"portal_credential_proof_discovery_failed","error_name":"TimeoutError"}
+# Subtest: every non-success Portal response body is cancelled before rejection
+    # Subtest: redeem
+    ok 1 - redeem
+      ---
+      duration_ms: 49.8996
+      type: 'test'
+      ...
+    # Subtest: redeem generic rejection
+    ok 2 - redeem generic rejection
+      ---
+      duration_ms: 1.0315
+      type: 'test'
+      ...
+    # Subtest: context
+    ok 3 - context
+      ---
+      duration_ms: 1.096
+      type: 'test'
+      ...
+    # Subtest: directory
+    ok 4 - directory
+      ---
+      duration_ms: 0.7404
+      type: 'test'
+      ...
+    1..4
+ok 20 - every non-success Portal response body is cancelled before rejection
+  ---
+  duration_ms: 56.4573
+  type: 'test'
+  ...
+# Subtest: background proof logs safe discovery failures and keeps the 401 race quiet
+    # Subtest: discovery failure
+    ok 1 - discovery failure
+      ---
+      duration_ms: 12.7461
+      type: 'test'
+      ...
+    # Subtest: secret-shaped custom error names are not logged
+    ok 2 - secret-shaped custom error names are not logged
+      ---
+      duration_ms: 2.951
+      type: 'test'
+      ...
+    # Subtest: expected registration race
+    ok 3 - expected registration race
+      ---
+      duration_ms: 5.8351
+      type: 'test'
+      ...
+    1..3
+ok 21 - background proof logs safe discovery failures and keeps the 401 race quiet
+  ---
+  duration_ms: 23.244
+  type: 'test'
+  ...
+# Subtest: an abort after credential discovery remains a hard credential failure
+ok 22 - an abort after credential discovery remains a hard credential failure
+  ---
+  duration_ms: 0.896
+  type: 'test'
+  ...
+# Subtest: production: all HTTP transport paths reject without sending credentials
+ok 23 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 175.3302
+  type: 'test'
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 24 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 116.9582
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 25 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 130.4157
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+ok 26 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 154.4164
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+ok 27 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 100.1535
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+ok 28 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 98.6366
+  type: 'test'
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+ok 29 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 2397.7135
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-22T23:26:46.489Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.521Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.529Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.533Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.566Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# Subtest: Portal revalidation fails closed and recovers without extending stale trust
+    # Subtest: a fresh session does not contact the Portal before its recheck is due
+    ok 1 - a fresh session does not contact the Portal before its recheck is due
+      ---
+      duration_ms: 33.2811
+      type: 'test'
+      ...
+    # Subtest: explicit local dev sign-in remains usable when Portal auth is unconfigured
+    ok 2 - explicit local dev sign-in remains usable when Portal auth is unconfigured
+      ---
+      duration_ms: 1.1553
+      type: 'test'
+      ...
+    # Subtest: an unconfigured connector never mistakes a migrated Portal session for dev
+    ok 3 - an unconfigured connector never mistakes a migrated Portal session for dev
+      ---
+      duration_ms: 3.7136
+      type: 'test'
+      ...
+    # Subtest: the session-origin column marks existing v0.1.2 rows as legacy
+    ok 4 - the session-origin column marks existing v0.1.2 rows as legacy
+      ---
+      duration_ms: 8.4472
+      type: 'test'
+      ...
+    # Subtest: a v0.1.2 writer into a new schema still creates a legacy session
+    ok 5 - a v0.1.2 writer into a new schema still creates a legacy session
+      ---
+      duration_ms: 26.934
+      type: 'test'
+      ...
+    # Subtest: a legacy admin must pass one live Portal check before outage access
+    ok 6 - a legacy admin must pass one live Portal check before outage access
+      ---
+      duration_ms: 3.5959
+      type: 'test'
+      ...
+    # Subtest: a v0.2.1 elevated Portal row is re-proven before cache or outage use
+    ok 7 - a v0.2.1 elevated Portal row is re-proven before cache or outage use
+      ---
+      duration_ms: 3.0786
+      type: 'test'
+      ...
+    # Subtest: Portal SSO refuses a stale token after this app grant is removed
+    ok 8 - Portal SSO refuses a stale token after this app grant is removed
+      ---
+      duration_ms: 3.05
+      type: 'test'
+      ...
+    # Subtest: Portal SSO marks only retryable failures as unavailable
+    ok 9 - Portal SSO marks only retryable failures as unavailable
+      ---
+      duration_ms: 9.336
+      type: 'test'
+      ...
+    # Subtest: a successful recheck refreshes context
+    ok 10 - a successful recheck refreshes context
+      ---
+      duration_ms: 4.5278
+      type: 'test'
+      ...
+    # Subtest: an ADMIN_EMAILS entry cannot preserve a removed legacy app grant
+    ok 11 - an ADMIN_EMAILS entry cannot preserve a removed legacy app grant
+      ---
+      duration_ms: 3.2498
+      type: 'test'
+      ...
+    # Subtest: an ADMIN_EMAILS entry cannot preserve a removed handle session
+    ok 12 - an ADMIN_EMAILS entry cannot preserve a removed handle session
+      ---
+      duration_ms: 3.8944
+      type: 'test'
+      ...
+    # Subtest: a disabled person is signed out and the local session is destroyed
+    ok 13 - a disabled person is signed out and the local session is destroyed
+      ---
+      duration_ms: 1.9866
+      type: 'test'
+      ...
+    # Subtest: removing this app from a non-ops context destroys the session
+    ok 14 - removing this app from a non-ops context destroys the session
+      ---
+      duration_ms: 1.4644
+      type: 'test'
+      ...
+    # Subtest: ops remains authorized without an explicit app entry
+    ok 15 - ops remains authorized without an explicit app entry
+      ---
+      duration_ms: 1.5494
+      type: 'test'
+      ...
+    # Subtest: a network failure returns retryable 503 and recovery needs no new login
+    ok 16 - a network failure returns retryable 503 and recovery needs no new login
+      ---
+      duration_ms: 2.7521
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-22T23:26:46.586Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.590Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.591Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.593Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.594Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.596Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.597Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.598Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.600Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-22T23:26:46.607Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.609Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.610Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.611Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.612Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.613Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.614Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.615Z","level":"warn","event":"portal_revalidation_denied","error_name":"TypeError","portal_unavailable":false}
+    # Subtest: a hung Portal request is bounded and denied
+    ok 17 - a hung Portal request is bounded and denied
+      ---
+      duration_ms: 18.9837
+      type: 'test'
+      ...
+    # Subtest: Portal errors and malformed JSON are denied, not served from cache
+    ok 18 - Portal errors and malformed JSON are denied, not served from cache
+      ---
+      duration_ms: 4.2173
+      type: 'test'
+      ...
+    # Subtest: authorization-breaking context shapes are rejected
+    ok 19 - authorization-breaking context shapes are rejected
+      ---
+      duration_ms: 5.5634
+      type: 'test'
+      ...
+    # Subtest: a malformed inactive response cannot revoke the wrong person's session
+    ok 20 - a malformed inactive response cannot revoke the wrong person's session
+      ---
+      duration_ms: 1.1164
+      type: 'test'
+      ...
+    # Subtest: hard session expiry still destroys the local session
+    ok 21 - hard session expiry still destroys the local session
+      ---
+      duration_ms: 0.644
+      type: 'test'
+      ...
+    # Subtest: cached offline admin access is disabled by default and explicit when enabled
+    ok 22 - cached offline admin access is disabled by default and explicit when enabled
+      ---
+      duration_ms: 1.6775
+      type: 'test'
+      ...
+    # Subtest: cached offline admin accepts only retryable Portal HTTP responses
+    ok 23 - cached offline admin accepts only retryable Portal HTTP responses
+      ---
+      duration_ms: 5.5707
+      type: 'test'
+      ...
+    # Subtest: cached offline admin denies auth, protocol, and malformed Portal responses
+    ok 24 - cached offline admin denies auth, protocol, and malformed Portal responses
+      ---
+      duration_ms: 7.0585
+      type: 'test'
+      ...
+    # Subtest: cached offline admin denies local URL and timeout configuration errors
+    ok 25 - cached offline admin denies local URL and timeout configuration errors
+      ---
+      duration_ms: 3.2408
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-22T23:26:46.642Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.645Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.647Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.648Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.649Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-22T23:26:46.651Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: cached offline admin accepts a real Portal timeout
+    ok 26 - cached offline admin accepts a real Portal timeout
+      ---
+      duration_ms: 13.9017
+      type: 'test'
+      ...
+    # Subtest: direct Google offline-admin sign-in rejects hard failures but permits retryable outages
+    ok 27 - direct Google offline-admin sign-in rejects hard failures but permits retryable outages
+      ---
+      duration_ms: 7.0764
+      type: 'test'
+      ...
+    # Subtest: offline admin bootstrap is denied when Portal configuration is absent
+    ok 28 - offline admin bootstrap is denied when Portal configuration is absent
+      ---
+      duration_ms: 1.0667
+      type: 'test'
+      ...
+    1..28
+ok 30 - Portal revalidation fails closed and recovers without extending stale trust
+  ---
+  duration_ms: 187.5207
+  type: 'test'
+  ...
+# Subtest: credential discovery failures never activate cached offline-admin access
+    # Subtest: sync: IAM access denied
+    ok 1 - sync: IAM access denied
+      ---
+      duration_ms: 2.3929
+      type: 'test'
+      ...
+    # Subtest: async: IAM access denied
+    ok 2 - async: IAM access denied
+      ---
+      duration_ms: 2.938
+      type: 'test'
+      ...
+    # Subtest: sync: deleted secret
+    ok 3 - sync: deleted secret
+      ---
+      duration_ms: 1.5279
+      type: 'test'
+      ...
+    # Subtest: async: deleted secret
+    ok 4 - async: deleted secret
+      ---
+      duration_ms: 1.0361
+      type: 'test'
+      ...
+    # Subtest: sync: malformed secret
+    ok 5 - sync: malformed secret
+      ---
+      duration_ms: 1.5222
+      type: 'test'
+      ...
+    # Subtest: async: malformed secret
+    ok 6 - async: malformed secret
+      ---
+      duration_ms: 1.7935
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-22T23:26:46.682Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: sync: provider timeout
+    ok 7 - sync: provider timeout
+      ---
+      duration_ms: 31.1729
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-22T23:26:46.714Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: async: provider timeout
+    ok 8 - async: provider timeout
+      ---
+      duration_ms: 31.3397
+      type: 'test'
+      ...
+    1..8
+ok 31 - credential discovery failures never activate cached offline-admin access
+  ---
+  duration_ms: 75.2387
+  type: 'test'
+  ...
+# Subtest: simultaneous stale revalidations share one Portal call and clean up
+    # Subtest: SQLite connector
+    ok 1 - SQLite connector
+      ---
+      duration_ms: 2.946
+      type: 'test'
+      ...
+    # Subtest: async connector
+    ok 2 - async connector
+      ---
+      duration_ms: 4.6199
+      type: 'test'
+      ...
+    1..2
+ok 32 - simultaneous stale revalidations share one Portal call and clean up
+  ---
+  duration_ms: 8.0932
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-22T23:26:46.735Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# Subtest: the optional async store lease coalesces across connector instances
+ok 33 - the optional async store lease coalesces across connector instances
+  ---
+  duration_ms: 1.6024
+  type: 'test'
+  ...
+# Subtest: async session stores preserve revoke-now and hard-expiry behavior
+ok 34 - async session stores preserve revoke-now and hard-expiry behavior
+  ---
+  duration_ms: 8.4962
+  type: 'test'
+  ...
+# Subtest: async v0.2.1 elevated rows require one live authority recheck
+ok 35 - async v0.2.1 elevated rows require one live authority recheck
+  ---
+  duration_ms: 5.6606
+  type: 'test'
+  ...
+# Subtest: direct Google sign-in respects the credential-migration boundary
+    # Subtest: a provider-absent legacy deployment keeps its fixed-lifetime flow
+    ok 1 - a provider-absent legacy deployment keeps its fixed-lifetime flow
+      ---
+      duration_ms: 6.9108
+      type: 'test'
+      ...
+    # Subtest: SQLite sessions fail before legacy Portal authentication
+    ok 2 - SQLite sessions fail before legacy Portal authentication
+      ---
+      duration_ms: 2.668
+      type: 'test'
+      ...
+    # Subtest: async sessions fail before legacy Portal authentication
+    ok 3 - async sessions fail before legacy Portal authentication
+      ---
+      duration_ms: 0.6945
+      type: 'test'
+      ...
+    1..3
+ok 36 - direct Google sign-in respects the credential-migration boundary
+  ---
+  duration_ms: 11.9186
+  type: 'test'
+  ...
+# Subtest: a 503 records whether the Portal was actually unavailable
+ok 37 - a 503 records whether the Portal was actually unavailable
+  ---
+  duration_ms: 1.5556
+  type: 'test'
+  ...
+# Subtest: SQLite stores only a digest that cannot be replayed as a bearer
+ok 38 - SQLite stores only a digest that cannot be replayed as a bearer
+  ---
+  duration_ms: 1.2043
+  type: 'test'
+  ...
+# Subtest: async insert stores the digest, not the raw token
+ok 39 - async insert stores the digest, not the raw token
+  ---
+  duration_ms: 0.2744
+  type: 'test'
+  ...
+# Subtest: async get resolves by raw token and returns the raw token on the session
+ok 40 - async get resolves by raw token and returns the raw token on the session
+  ---
+  duration_ms: 1.1579
+  type: 'test'
+  ...
+# Subtest: a copied stored digest is NOT accepted as a cookie
+ok 41 - a copied stored digest is NOT accepted as a cookie
+  ---
+  duration_ms: 0.6507
+  type: 'test'
+  ...
+# Subtest: a legacy raw row authenticates once and is upgraded in place
+ok 42 - a legacy raw row authenticates once and is upgraded in place
+  ---
+  duration_ms: 0.3923
+  type: 'test'
+  ...
+# Subtest: sign-out removes the session for a digest-stored row
+ok 43 - sign-out removes the session for a digest-stored row
+  ---
+  duration_ms: 0.2319
+  type: 'test'
+  ...
+# Subtest: sign-out removes the session for a legacy raw row
+ok 44 - sign-out removes the session for a legacy raw row
+  ---
+  duration_ms: 0.1937
+  type: 'test'
+  ...
+# Subtest: the advisory-lock key is the raw token, stable across a migration
+ok 45 - the advisory-lock key is the raw token, stable across a migration
+  ---
+  duration_ms: 0.8506
+  type: 'test'
+  ...
+# Subtest: a migration write failure still authenticates
+ok 46 - a migration write failure still authenticates
+  ---
+  duration_ms: 0.3076
+  type: 'test'
+  ...
+# Subtest: concurrent requests on the same legacy raw cookie both resolve (migration race)
+ok 47 - concurrent requests on the same legacy raw cookie both resolve (migration race)
+  ---
+  duration_ms: 0.7389
+  type: 'test'
+  ...
+1..47
+# tests 101
+# suites 0
+# pass 101
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6033.9842

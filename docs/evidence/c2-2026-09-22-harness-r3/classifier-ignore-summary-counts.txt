@@ -1,0 +1,490 @@
+TAP version 13
+# Subtest: C2 classifier accepts complete success and exact behavioral failure censuses
+ok 1 - C2 classifier accepts complete success and exact behavioral failure censuses
+  ---
+  duration_ms: 7.2878
+  type: 'test'
+  ...
+# Subtest: C2 rejects timeout in outer run
+ok 2 - C2 rejects timeout in outer run
+  ---
+  duration_ms: 0.6529
+  type: 'test'
+  ...
+# Subtest: C2 rejects timeout in TLS child despite outer assertion wrapper
+ok 3 - C2 rejects timeout in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.4316
+  type: 'test'
+  ...
+# Subtest: C2 rejects signal in outer run
+ok 4 - C2 rejects signal in outer run
+  ---
+  duration_ms: 0.7712
+  type: 'test'
+  ...
+# Subtest: C2 rejects signal in TLS child despite outer assertion wrapper
+ok 5 - C2 rejects signal in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3821
+  type: 'test'
+  ...
+# Subtest: C2 rejects crash exit in outer run
+ok 6 - C2 rejects crash exit in outer run
+  ---
+  duration_ms: 0.1998
+  type: 'test'
+  ...
+# Subtest: C2 rejects crash exit in TLS child despite outer assertion wrapper
+ok 7 - C2 rejects crash exit in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 1.1525
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing exit in outer run
+ok 8 - C2 rejects missing exit in outer run
+  ---
+  duration_ms: 0.3991
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing exit in TLS child despite outer assertion wrapper
+ok 9 - C2 rejects missing exit in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.78
+  type: 'test'
+  ...
+# Subtest: C2 rejects exit census mismatch in outer run
+ok 10 - C2 rejects exit census mismatch in outer run
+  ---
+  duration_ms: 0.7233
+  type: 'test'
+  ...
+# Subtest: C2 rejects exit census mismatch in TLS child despite outer assertion wrapper
+ok 11 - C2 rejects exit census mismatch in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3632
+  type: 'test'
+  ...
+# Subtest: C2 rejects stderr runtime error in outer run
+ok 12 - C2 rejects stderr runtime error in outer run
+  ---
+  duration_ms: 0.1781
+  type: 'test'
+  ...
+# Subtest: C2 rejects stderr runtime error in TLS child despite outer assertion wrapper
+ok 13 - C2 rejects stderr runtime error in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1797
+  type: 'test'
+  ...
+# Subtest: C2 rejects load error in outer run
+ok 14 - C2 rejects load error in outer run
+  ---
+  duration_ms: 0.1556
+  type: 'test'
+  ...
+# Subtest: C2 rejects load error in TLS child despite outer assertion wrapper
+ok 15 - C2 rejects load error in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1726
+  type: 'test'
+  ...
+# Subtest: C2 rejects runtime TypeError in outer run
+ok 16 - C2 rejects runtime TypeError in outer run
+  ---
+  duration_ms: 0.1679
+  type: 'test'
+  ...
+# Subtest: C2 rejects runtime TypeError in TLS child despite outer assertion wrapper
+ok 17 - C2 rejects runtime TypeError in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.186
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled failure type in outer run
+ok 18 - C2 rejects cancelled failure type in outer run
+  ---
+  duration_ms: 0.1582
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled failure type in TLS child despite outer assertion wrapper
+ok 19 - C2 rejects cancelled failure type in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1721
+  type: 'test'
+  ...
+# Subtest: C2 rejects hook failure in outer run
+ok 20 - C2 rejects hook failure in outer run
+  ---
+  duration_ms: 0.1798
+  type: 'test'
+  ...
+# Subtest: C2 rejects hook failure in TLS child despite outer assertion wrapper
+ok 21 - C2 rejects hook failure in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1991
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing plan in outer run
+ok 22 - C2 rejects missing plan in outer run
+  ---
+  duration_ms: 0.2232
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing plan in TLS child despite outer assertion wrapper
+ok 23 - C2 rejects missing plan in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 2.1967
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate plan in outer run
+ok 24 - C2 rejects duplicate plan in outer run
+  ---
+  duration_ms: 0.244
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate plan in TLS child despite outer assertion wrapper
+ok 25 - C2 rejects duplicate plan in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1763
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong test count in outer run
+not ok 26 - C2 rejects wrong test count in outer run
+  ---
+  duration_ms: 0.9123
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects wrong test count in TLS child despite outer assertion wrapper
+not ok 27 - C2 rejects wrong test count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.2935
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects wrong pass count in outer run
+not ok 28 - C2 rejects wrong pass count in outer run
+  ---
+  duration_ms: 0.3169
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects wrong pass count in TLS child despite outer assertion wrapper
+not ok 29 - C2 rejects wrong pass count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.219
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects wrong fail count in outer run
+not ok 30 - C2 rejects wrong fail count in outer run
+  ---
+  duration_ms: 0.3191
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects wrong fail count in TLS child despite outer assertion wrapper
+not ok 31 - C2 rejects wrong fail count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.319
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects cancelled census in outer run
+not ok 32 - C2 rejects cancelled census in outer run
+  ---
+  duration_ms: 0.2854
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects cancelled census in TLS child despite outer assertion wrapper
+not ok 33 - C2 rejects cancelled census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3897
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects skipped census in outer run
+not ok 34 - C2 rejects skipped census in outer run
+  ---
+  duration_ms: 3.4472
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects skipped census in TLS child despite outer assertion wrapper
+not ok 35 - C2 rejects skipped census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 1.1876
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects todo census in outer run
+not ok 36 - C2 rejects todo census in outer run
+  ---
+  duration_ms: 0.3608
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:54:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:56:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects todo census in TLS child despite outer assertion wrapper
+not ok 37 - C2 rejects todo census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3684
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\temp\\c2-classifier-r3\\test\\c2-evidence.test.mjs:58:3'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/temp/c2-classifier-r3/test/c2-evidence.test.mjs:60:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: C2 rejects duplicate summary in outer run
+ok 38 - C2 rejects duplicate summary in outer run
+  ---
+  duration_ms: 0.2673
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate summary in TLS child despite outer assertion wrapper
+ok 39 - C2 rejects duplicate summary in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.8368
+  type: 'test'
+  ...
+# Subtest: C2 rejects truncated summary in outer run
+ok 40 - C2 rejects truncated summary in outer run
+  ---
+  duration_ms: 0.7215
+  type: 'test'
+  ...
+# Subtest: C2 rejects truncated summary in TLS child despite outer assertion wrapper
+ok 41 - C2 rejects truncated summary in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 1.9478
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing test record in outer run
+ok 42 - C2 rejects missing test record in outer run
+  ---
+  duration_ms: 0.8281
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing test record in TLS child despite outer assertion wrapper
+ok 43 - C2 rejects missing test record in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.9442
+  type: 'test'
+  ...
+# Subtest: C2 rejects unknown test identity in outer run
+ok 44 - C2 rejects unknown test identity in outer run
+  ---
+  duration_ms: 0.3613
+  type: 'test'
+  ...
+# Subtest: C2 rejects unknown test identity in TLS child despite outer assertion wrapper
+ok 45 - C2 rejects unknown test identity in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.2234
+  type: 'test'
+  ...
+# Subtest: C2 rejects bailout in outer run
+ok 46 - C2 rejects bailout in outer run
+  ---
+  duration_ms: 0.1505
+  type: 'test'
+  ...
+# Subtest: C2 rejects bailout in TLS child despite outer assertion wrapper
+ok 47 - C2 rejects bailout in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1612
+  type: 'test'
+  ...
+# Subtest: C2 requires a unique TLS receipt and matching inner/outer failure
+ok 48 - C2 requires a unique TLS receipt and matching inner/outer failure
+  ---
+  duration_ms: 0.8291
+  type: 'test'
+  ...
+# Subtest: C2 refuses incomplete or extra mutation failure sets
+ok 49 - C2 refuses incomplete or extra mutation failure sets
+  ---
+  duration_ms: 0.5134
+  type: 'test'
+  ...
+# Subtest: invalid child evidence throws ordinary Error, never a behavioral AssertionError
+ok 50 - invalid child evidence throws ordinary Error, never a behavioral AssertionError
+  ---
+  duration_ms: 0.2408
+  type: 'test'
+  ...
+1..50
+# tests 50
+# suites 0
+# pass 38
+# fail 12
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 352.8998

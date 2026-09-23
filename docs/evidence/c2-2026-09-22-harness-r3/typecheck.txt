@@ -1,0 +1,3 @@
+
+> @mule/portal-auth@0.2.4 typecheck
+> tsc --noEmit -p tsconfig.json

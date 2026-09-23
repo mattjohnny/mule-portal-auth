@@ -1,0 +1,70 @@
+[
+  {
+    "name": "ignore-process-errors",
+    "status": "assertion-killed",
+    "failed": [
+      "C2 rejects timeout in outer run",
+      "C2 rejects timeout in TLS child despite outer assertion wrapper",
+      "C2 rejects signal in outer run",
+      "C2 rejects signal in TLS child despite outer assertion wrapper"
+    ]
+  },
+  {
+    "name": "ignore-summary-counts",
+    "status": "assertion-killed",
+    "failed": [
+      "C2 rejects wrong test count in outer run",
+      "C2 rejects wrong test count in TLS child despite outer assertion wrapper",
+      "C2 rejects wrong pass count in outer run",
+      "C2 rejects wrong pass count in TLS child despite outer assertion wrapper",
+      "C2 rejects wrong fail count in outer run",
+      "C2 rejects wrong fail count in TLS child despite outer assertion wrapper",
+      "C2 rejects cancelled census in outer run",
+      "C2 rejects cancelled census in TLS child despite outer assertion wrapper",
+      "C2 rejects skipped census in outer run",
+      "C2 rejects skipped census in TLS child despite outer assertion wrapper",
+      "C2 rejects todo census in outer run",
+      "C2 rejects todo census in TLS child despite outer assertion wrapper"
+    ]
+  },
+  {
+    "name": "ignore-assertion-kind",
+    "status": "assertion-killed",
+    "failed": [
+      "C2 rejects load error in outer run",
+      "C2 rejects load error in TLS child despite outer assertion wrapper",
+      "C2 rejects runtime TypeError in outer run",
+      "C2 rejects runtime TypeError in TLS child despite outer assertion wrapper"
+    ]
+  },
+  {
+    "name": "ignore-child-evidence",
+    "status": "assertion-killed",
+    "failed": [
+      "C2 rejects timeout in TLS child despite outer assertion wrapper",
+      "C2 rejects signal in TLS child despite outer assertion wrapper",
+      "C2 rejects crash exit in TLS child despite outer assertion wrapper",
+      "C2 rejects missing exit in TLS child despite outer assertion wrapper",
+      "C2 rejects exit census mismatch in TLS child despite outer assertion wrapper",
+      "C2 rejects stderr runtime error in TLS child despite outer assertion wrapper",
+      "C2 rejects load error in TLS child despite outer assertion wrapper",
+      "C2 rejects runtime TypeError in TLS child despite outer assertion wrapper",
+      "C2 rejects cancelled failure type in TLS child despite outer assertion wrapper",
+      "C2 rejects hook failure in TLS child despite outer assertion wrapper",
+      "C2 rejects missing plan in TLS child despite outer assertion wrapper",
+      "C2 rejects duplicate plan in TLS child despite outer assertion wrapper",
+      "C2 rejects wrong test count in TLS child despite outer assertion wrapper",
+      "C2 rejects wrong pass count in TLS child despite outer assertion wrapper",
+      "C2 rejects wrong fail count in TLS child despite outer assertion wrapper",
+      "C2 rejects cancelled census in TLS child despite outer assertion wrapper",
+      "C2 rejects skipped census in TLS child despite outer assertion wrapper",
+      "C2 rejects todo census in TLS child despite outer assertion wrapper",
+      "C2 rejects duplicate summary in TLS child despite outer assertion wrapper",
+      "C2 rejects truncated summary in TLS child despite outer assertion wrapper",
+      "C2 rejects missing test record in TLS child despite outer assertion wrapper",
+      "C2 rejects unknown test identity in TLS child despite outer assertion wrapper",
+      "C2 rejects bailout in TLS child despite outer assertion wrapper",
+      "C2 requires a unique TLS receipt and matching inner/outer failure"
+    ]
+  }
+]

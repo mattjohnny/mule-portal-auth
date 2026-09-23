@@ -1,0 +1,88 @@
+TAP version 13
+# Subtest: production: all HTTP transport paths reject without sending credentials
+ok 1 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 171.0953
+  type: 'test'
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 2 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 107.6477
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 3 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 108.649
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+not ok 4 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 2.9147
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\portal-transport.test.js:91:3'
+  failureType: 'testCodeFailure'
+  error: 'Portal URL must use HTTPS in production or on Render.'
+  code: 'ERR_TEST_FAILURE'
+  name: 'PortalError'
+  stack: |-
+    portalEndpoint (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:280:15)
+    redeemSso (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:336:22)
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/portal-transport.test.js:97:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+not ok 5 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 4.679
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\portal-transport.test.js:91:3'
+  failureType: 'testCodeFailure'
+  error: 'Portal URL must use HTTPS in production or on Render.'
+  code: 'ERR_TEST_FAILURE'
+  name: 'PortalError'
+  stack: |-
+    portalEndpoint (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:280:15)
+    redeemSso (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:336:22)
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/portal-transport.test.js:97:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+not ok 6 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 2.3391
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\portal-transport.test.js:91:3'
+  failureType: 'testCodeFailure'
+  error: 'Portal URL must use HTTPS in production or on Render.'
+  code: 'ERR_TEST_FAILURE'
+  name: 'PortalError'
+  stack: |-
+    portalEndpoint (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:280:15)
+    redeemSso (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/dist/portal.js:336:22)
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/portal-transport.test.js:97:25)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+ok 7 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 2170.9549
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 4
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3125.2469
