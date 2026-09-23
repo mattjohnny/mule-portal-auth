@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { createPortalAuth, createPortalAuthAsync, PortalError } from "../dist/index.js";
 import { PortalServiceAuth, fetchContext, fetchAppDirectory, redeemSso } from "../dist/portal.js";
+import { childReceipt, validateTap, tlsTitle } from "../scripts/c2-evidence.mjs";
 
 const credential = { schemaVersion: 1, appKey: "transport-test", credentialId: "synthetic-id", secret: "synthetic-secret-for-local-tests-only", stage: "AWSCURRENT" };
 const context = { email: "test@example.invalid", name: "Test", role: "manager", is_admin: false, status: "active", active: true, locations: [], apps: ["transport-test"], ctx_version: 1 };
@@ -94,11 +95,19 @@ for (const nodeEnv of [undefined, "development", "test"]) {
     const serviceAuth = new PortalServiceAuth(provider(), "", url, 60_000, "transport-test");
     t.after(() => serviceAuth.close());
     const opts = { portalUrl: url, appName: "transport-test", requestTimeoutMs: 2000, serviceAuth };
-    await assert.doesNotReject(async () => {
+    try {
       assert.equal((await redeemSso(opts, "synthetic-sso")).email, context.email);
       assert.equal((await fetchContext(opts, "synthetic-handle", context.email)).email, context.email);
       await fetchAppDirectory(opts);
-    });
+    } catch (error) {
+      // Only the intended policy regression becomes mutation evidence. Preserve
+      // unrelated runtime/transport errors instead of wrapping them as assertions.
+      if (error instanceof PortalError && !error.unavailable &&
+          error.message === "Portal URL must use HTTPS in production or on Render.") {
+        assert.fail("Local HTTP development was incorrectly rejected by HTTPS policy");
+      }
+      throw error;
+    }
     await delay(50);
     for (const path of ["/api/credential-proof", "/api/redeem-sso", "/api/context", "/api/app-directory?app=transport-test"]) {
       assert.ok(received.some((r) => r.path === path && r.headers.authorization === `PortalCredential ${credential.credentialId}.${credential.secret}`), path);
@@ -108,15 +117,16 @@ for (const nodeEnv of [undefined, "development", "test"]) {
   });
 }
 
-test("real trusted HTTPS transport and downgrade redirects", () => {
+test("real trusted HTTPS transport and downgrade redirects", (t) => {
   const env = { ...process.env, NODE_EXTRA_CA_CERTS: fileURLToPath(new URL("./fixtures/localhost-cert.pem", import.meta.url)), NODE_ENV: "production", RENDER: "true" };
   delete env.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, ["--test", fileURLToPath(new URL("./fixtures/transport-tls.mjs", import.meta.url))], {
     env,
     encoding: "utf8", timeout: 30_000,
   });
-  assert.ifError(result.error);
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /# tests 1\r?\n/);
-  assert.match(result.stdout, /# pass 1\r?\n/);
+  t.diagnostic(childReceipt(result).slice(2).trimEnd());
+  // A child crash/load failure/cancellation is invalid evidence, never a
+  // behavioral AssertionError. Retain the complete child receipt for the runner.
+  const child = validateTap(result, [tlsTitle]);
+  assert.equal(child.failed.length, 0, result.stdout);
 });

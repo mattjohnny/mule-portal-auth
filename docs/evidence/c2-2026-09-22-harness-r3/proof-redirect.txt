@@ -1,0 +1,107 @@
+TAP version 13
+# Subtest: production: all HTTP transport paths reject without sending credentials
+ok 1 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 181.6105
+  type: 'test'
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 2 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 121.8399
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 3 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 109.809
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+ok 4 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 127.9626
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+ok 5 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 103.2054
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+ok 6 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 92.7334
+  type: 'test'
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+not ok 7 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 648.7111
+  type: 'test'
+  location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\portal-transport.test.js:120:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    TAP version 13
+    # Subtest: HTTPS succeeds; redirects cannot move credentials, bodies or proof trust
+    not ok 1 - HTTPS succeeds; redirects cannot move credentials, bodies or proof trust
+      ---
+      duration_ms: 318.3472
+      type: 'test'
+      location: 'E:\\Code\\audit-work\\accountability-go-20260922\\portal-auth\\test\\fixtures\\transport-tls.mjs:23:1'
+      failureType: 'testCodeFailure'
+      error: |-
+        The expression evaluated to a falsy value:
+
+          assert.ok(normal.every((r) => !r.headers.authorization?.includes("synthetic-pending")))
+
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      expected: true
+      actual: false
+      operator: '=='
+      stack: |-
+        TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/fixtures/transport-tls.mjs:90:16)
+        process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    1..1
+    # tests 1
+    # suites 0
+    # pass 0
+    # fail 1
+    # cancelled 0
+    # skipped 0
+    # todo 0
+    # duration_ms 546.5524
+
+
+    1 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/audit-work/accountability-go-20260922/portal-auth/test/portal-transport.test.js:131:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# C2_TLS_RESULT eyJzdGF0dXMiOjEsInNpZ25hbCI6bnVsbCwiZXJyb3IiOm51bGwsInN0ZG91dCI6IlRBUCB2ZXJzaW9uIDEzXG4jIFN1YnRlc3Q6IEhUVFBTIHN1Y2NlZWRzOyByZWRpcmVjdHMgY2Fubm90IG1vdmUgY3JlZGVudGlhbHMsIGJvZGllcyBvciBwcm9vZiB0cnVzdFxubm90IG9rIDEgLSBIVFRQUyBzdWNjZWVkczsgcmVkaXJlY3RzIGNhbm5vdCBtb3ZlIGNyZWRlbnRpYWxzLCBib2RpZXMgb3IgcHJvb2YgdHJ1c3RcbiAgLS0tXG4gIGR1cmF0aW9uX21zOiAzMTguMzQ3MlxuICB0eXBlOiAndGVzdCdcbiAgbG9jYXRpb246ICdFOlxcXFxDb2RlXFxcXGF1ZGl0LXdvcmtcXFxcYWNjb3VudGFiaWxpdHktZ28tMjAyNjA5MjJcXFxccG9ydGFsLWF1dGhcXFxcdGVzdFxcXFxmaXh0dXJlc1xcXFx0cmFuc3BvcnQtdGxzLm1qczoyMzoxJ1xuICBmYWlsdXJlVHlwZTogJ3Rlc3RDb2RlRmFpbHVyZSdcbiAgZXJyb3I6IHwtXG4gICAgVGhlIGV4cHJlc3Npb24gZXZhbHVhdGVkIHRvIGEgZmFsc3kgdmFsdWU6XG4gICAgXG4gICAgICBhc3NlcnQub2sobm9ybWFsLmV2ZXJ5KChyKSA9PiAhci5oZWFkZXJzLmF1dGhvcml6YXRpb24/LmluY2x1ZGVzKFwic3ludGhldGljLXBlbmRpbmdcIikpKVxuICAgIFxuICBjb2RlOiAnRVJSX0FTU0VSVElPTidcbiAgbmFtZTogJ0Fzc2VydGlvbkVycm9yJ1xuICBleHBlY3RlZDogdHJ1ZVxuICBhY3R1YWw6IGZhbHNlXG4gIG9wZXJhdG9yOiAnPT0nXG4gIHN0YWNrOiB8LVxuICAgIFRlc3RDb250ZXh0Ljxhbm9ueW1vdXM+IChmaWxlOi8vL0U6L0NvZGUvYXVkaXQtd29yay9hY2NvdW50YWJpbGl0eS1nby0yMDI2MDkyMi9wb3J0YWwtYXV0aC90ZXN0L2ZpeHR1cmVzL3RyYW5zcG9ydC10bHMubWpzOjkwOjE2KVxuICAgIHByb2Nlc3MucHJvY2Vzc1RpY2tzQW5kUmVqZWN0aW9ucyAobm9kZTppbnRlcm5hbC9wcm9jZXNzL3Rhc2tfcXVldWVzOjEwMzo1KVxuICAgIGFzeW5jIFRlc3QucnVuIChub2RlOmludGVybmFsL3Rlc3RfcnVubmVyL3Rlc3Q6MTA1NDo3KVxuICAgIGFzeW5jIHN0YXJ0U3VidGVzdEFmdGVyQm9vdHN0cmFwIChub2RlOmludGVybmFsL3Rlc3RfcnVubmVyL2hhcm5lc3M6Mjk2OjMpXG4gIC4uLlxuMS4uMVxuIyB0ZXN0cyAxXG4jIHN1aXRlcyAwXG4jIHBhc3MgMFxuIyBmYWlsIDFcbiMgY2FuY2VsbGVkIDBcbiMgc2tpcHBlZCAwXG4jIHRvZG8gMFxuIyBkdXJhdGlvbl9tcyA1NDYuNTUyNFxuIiwic3RkZXJyIjoiIn0=
+1..7
+# tests 7
+# suites 0
+# pass 6
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2390.8135

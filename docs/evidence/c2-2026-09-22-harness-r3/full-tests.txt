@@ -1,0 +1,970 @@
+
+> @mule/portal-auth@0.2.4 test
+> npm run build && node --test test/*.test.js
+
+
+> @mule/portal-auth@0.2.4 build
+> npm run clean && tsc -p tsconfig.json
+
+
+> @mule/portal-auth@0.2.4 clean
+> node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"
+
+TAP version 13
+# Subtest: AWS credentials are parsed, app-bound, and tolerate a missing pending stage
+ok 1 - AWS credentials are parsed, app-bound, and tolerate a missing pending stage
+  ---
+  duration_ms: 3.3101
+  type: 'test'
+  ...
+# Subtest: AWS credentials reject malformed values and another app's binding
+ok 2 - AWS credentials reject malformed values and another app's binding
+  ---
+  duration_ms: 2.3026
+  type: 'test'
+  ...
+# Subtest: a refresh failure returns only a previously loaded stale cache
+ok 3 - a refresh failure returns only a previously loaded stale cache
+  ---
+  duration_ms: 1.5151
+  type: 'test'
+  ...
+# Subtest: hard current-stage failures never fall back to a stale credential
+    # Subtest: IAM access denied
+    ok 1 - IAM access denied
+      ---
+      duration_ms: 3.6632
+      type: 'test'
+      ...
+    # Subtest: deleted secret
+    ok 2 - deleted secret
+      ---
+      duration_ms: 0.7183
+      type: 'test'
+      ...
+    # Subtest: malformed current secret
+    ok 3 - malformed current secret
+      ---
+      duration_ms: 0.9125
+      type: 'test'
+      ...
+    1..3
+ok 4 - hard current-stage failures never fall back to a stale credential
+  ---
+  duration_ms: 6.6801
+  type: 'test'
+  ...
+# Subtest: a valid current credential survives independent pending failures
+    # Subtest: pending IAM failure
+    ok 1 - pending IAM failure
+      ---
+      duration_ms: 2.6696
+      type: 'test'
+      ...
+    # Subtest: malformed pending secret
+    ok 2 - malformed pending secret
+      ---
+      duration_ms: 0.7831
+      type: 'test'
+      ...
+    # Subtest: secret-shaped custom error name
+    ok 3 - secret-shaped custom error name
+      ---
+      duration_ms: 0.5465
+      type: 'test'
+      ...
+    1..3
+ok 5 - a valid current credential survives independent pending failures
+  ---
+  duration_ms: 5.661
+  type: 'test'
+  ...
+# Subtest: caller abort is not ignored after current while pending is loading
+ok 6 - caller abort is not ignored after current while pending is loading
+  ---
+  duration_ms: 11.211
+  type: 'test'
+  ...
+# Subtest: concurrent cold-cache requests coalesce into one Secrets Manager load
+ok 7 - concurrent cold-cache requests coalesce into one Secrets Manager load
+  ---
+  duration_ms: 0.8893
+  type: 'test'
+  ...
+# Subtest: one caller's deadline cannot cancel another coalesced AWS waiter
+ok 8 - one caller's deadline cannot cancel another coalesced AWS waiter
+  ---
+  duration_ms: 1.4041
+  type: 'test'
+  ...
+# Subtest: an abort reaches Secrets Manager and never returns stale cache
+ok 9 - an abort reaches Secrets Manager and never returns stale cache
+  ---
+  duration_ms: 0.8265
+  type: 'test'
+  ...
+# Subtest: C2 classifier accepts complete success and exact behavioral failure censuses
+ok 10 - C2 classifier accepts complete success and exact behavioral failure censuses
+  ---
+  duration_ms: 4.1402
+  type: 'test'
+  ...
+# Subtest: C2 rejects timeout in outer run
+ok 11 - C2 rejects timeout in outer run
+  ---
+  duration_ms: 0.6221
+  type: 'test'
+  ...
+# Subtest: C2 rejects timeout in TLS child despite outer assertion wrapper
+ok 12 - C2 rejects timeout in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.4815
+  type: 'test'
+  ...
+# Subtest: C2 rejects signal in outer run
+ok 13 - C2 rejects signal in outer run
+  ---
+  duration_ms: 0.2988
+  type: 'test'
+  ...
+# Subtest: C2 rejects signal in TLS child despite outer assertion wrapper
+ok 14 - C2 rejects signal in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.7378
+  type: 'test'
+  ...
+# Subtest: C2 rejects crash exit in outer run
+ok 15 - C2 rejects crash exit in outer run
+  ---
+  duration_ms: 0.2199
+  type: 'test'
+  ...
+# Subtest: C2 rejects crash exit in TLS child despite outer assertion wrapper
+ok 16 - C2 rejects crash exit in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.4001
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing exit in outer run
+ok 17 - C2 rejects missing exit in outer run
+  ---
+  duration_ms: 0.1757
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing exit in TLS child despite outer assertion wrapper
+ok 18 - C2 rejects missing exit in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.7135
+  type: 'test'
+  ...
+# Subtest: C2 rejects exit census mismatch in outer run
+ok 19 - C2 rejects exit census mismatch in outer run
+  ---
+  duration_ms: 0.5979
+  type: 'test'
+  ...
+# Subtest: C2 rejects exit census mismatch in TLS child despite outer assertion wrapper
+ok 20 - C2 rejects exit census mismatch in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3612
+  type: 'test'
+  ...
+# Subtest: C2 rejects stderr runtime error in outer run
+ok 21 - C2 rejects stderr runtime error in outer run
+  ---
+  duration_ms: 0.1424
+  type: 'test'
+  ...
+# Subtest: C2 rejects stderr runtime error in TLS child despite outer assertion wrapper
+ok 22 - C2 rejects stderr runtime error in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 1.2494
+  type: 'test'
+  ...
+# Subtest: C2 rejects load error in outer run
+ok 23 - C2 rejects load error in outer run
+  ---
+  duration_ms: 0.174
+  type: 'test'
+  ...
+# Subtest: C2 rejects load error in TLS child despite outer assertion wrapper
+ok 24 - C2 rejects load error in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1642
+  type: 'test'
+  ...
+# Subtest: C2 rejects runtime TypeError in outer run
+ok 25 - C2 rejects runtime TypeError in outer run
+  ---
+  duration_ms: 0.1472
+  type: 'test'
+  ...
+# Subtest: C2 rejects runtime TypeError in TLS child despite outer assertion wrapper
+ok 26 - C2 rejects runtime TypeError in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.9041
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled failure type in outer run
+ok 27 - C2 rejects cancelled failure type in outer run
+  ---
+  duration_ms: 0.4538
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled failure type in TLS child despite outer assertion wrapper
+ok 28 - C2 rejects cancelled failure type in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 1.2064
+  type: 'test'
+  ...
+# Subtest: C2 rejects hook failure in outer run
+ok 29 - C2 rejects hook failure in outer run
+  ---
+  duration_ms: 0.2356
+  type: 'test'
+  ...
+# Subtest: C2 rejects hook failure in TLS child despite outer assertion wrapper
+ok 30 - C2 rejects hook failure in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 2.9743
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing plan in outer run
+ok 31 - C2 rejects missing plan in outer run
+  ---
+  duration_ms: 1.674
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing plan in TLS child despite outer assertion wrapper
+ok 32 - C2 rejects missing plan in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 2.0349
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate plan in outer run
+ok 33 - C2 rejects duplicate plan in outer run
+  ---
+  duration_ms: 0.1687
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate plan in TLS child despite outer assertion wrapper
+ok 34 - C2 rejects duplicate plan in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1627
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong test count in outer run
+ok 35 - C2 rejects wrong test count in outer run
+  ---
+  duration_ms: 0.2368
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong test count in TLS child despite outer assertion wrapper
+ok 36 - C2 rejects wrong test count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1717
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong pass count in outer run
+ok 37 - C2 rejects wrong pass count in outer run
+  ---
+  duration_ms: 0.1862
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong pass count in TLS child despite outer assertion wrapper
+ok 38 - C2 rejects wrong pass count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1684
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong fail count in outer run
+ok 39 - C2 rejects wrong fail count in outer run
+  ---
+  duration_ms: 0.1884
+  type: 'test'
+  ...
+# Subtest: C2 rejects wrong fail count in TLS child despite outer assertion wrapper
+ok 40 - C2 rejects wrong fail count in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.187
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled census in outer run
+ok 41 - C2 rejects cancelled census in outer run
+  ---
+  duration_ms: 0.155
+  type: 'test'
+  ...
+# Subtest: C2 rejects cancelled census in TLS child despite outer assertion wrapper
+ok 42 - C2 rejects cancelled census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.2231
+  type: 'test'
+  ...
+# Subtest: C2 rejects skipped census in outer run
+ok 43 - C2 rejects skipped census in outer run
+  ---
+  duration_ms: 0.8573
+  type: 'test'
+  ...
+# Subtest: C2 rejects skipped census in TLS child despite outer assertion wrapper
+ok 44 - C2 rejects skipped census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.3939
+  type: 'test'
+  ...
+# Subtest: C2 rejects todo census in outer run
+ok 45 - C2 rejects todo census in outer run
+  ---
+  duration_ms: 0.2958
+  type: 'test'
+  ...
+# Subtest: C2 rejects todo census in TLS child despite outer assertion wrapper
+ok 46 - C2 rejects todo census in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.2016
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate summary in outer run
+ok 47 - C2 rejects duplicate summary in outer run
+  ---
+  duration_ms: 0.1587
+  type: 'test'
+  ...
+# Subtest: C2 rejects duplicate summary in TLS child despite outer assertion wrapper
+ok 48 - C2 rejects duplicate summary in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1635
+  type: 'test'
+  ...
+# Subtest: C2 rejects truncated summary in outer run
+ok 49 - C2 rejects truncated summary in outer run
+  ---
+  duration_ms: 0.2142
+  type: 'test'
+  ...
+# Subtest: C2 rejects truncated summary in TLS child despite outer assertion wrapper
+ok 50 - C2 rejects truncated summary in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1709
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing test record in outer run
+ok 51 - C2 rejects missing test record in outer run
+  ---
+  duration_ms: 0.1838
+  type: 'test'
+  ...
+# Subtest: C2 rejects missing test record in TLS child despite outer assertion wrapper
+ok 52 - C2 rejects missing test record in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1609
+  type: 'test'
+  ...
+# Subtest: C2 rejects unknown test identity in outer run
+ok 53 - C2 rejects unknown test identity in outer run
+  ---
+  duration_ms: 0.199
+  type: 'test'
+  ...
+# Subtest: C2 rejects unknown test identity in TLS child despite outer assertion wrapper
+ok 54 - C2 rejects unknown test identity in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.1781
+  type: 'test'
+  ...
+# Subtest: C2 rejects bailout in outer run
+ok 55 - C2 rejects bailout in outer run
+  ---
+  duration_ms: 0.1338
+  type: 'test'
+  ...
+# Subtest: C2 rejects bailout in TLS child despite outer assertion wrapper
+ok 56 - C2 rejects bailout in TLS child despite outer assertion wrapper
+  ---
+  duration_ms: 0.39
+  type: 'test'
+  ...
+# Subtest: C2 requires a unique TLS receipt and matching inner/outer failure
+ok 57 - C2 requires a unique TLS receipt and matching inner/outer failure
+  ---
+  duration_ms: 0.9678
+  type: 'test'
+  ...
+# Subtest: C2 refuses incomplete or extra mutation failure sets
+ok 58 - C2 refuses incomplete or extra mutation failure sets
+  ---
+  duration_ms: 0.4093
+  type: 'test'
+  ...
+# Subtest: invalid child evidence throws ordinary Error, never a behavioral AssertionError
+ok 59 - invalid child evidence throws ordinary Error, never a behavioral AssertionError
+  ---
+  duration_ms: 0.1834
+  type: 'test'
+  ...
+# Subtest: a low-traffic connector synthetically proves pending credentials
+ok 60 - a low-traffic connector synthetically proves pending credentials
+  ---
+  duration_ms: 61.2188
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-23T00:54:08.789Z","level":"warn","event":"portal_credential_proof_discovery_failed","error_name":"Error"}
+# Subtest: unregistered or rejected pending credentials fall back to current
+ok 61 - unregistered or rejected pending credentials fall back to current
+  ---
+  duration_ms: 81.5339
+  type: 'test'
+  ...
+# Subtest: a cold-cache credential-provider outage fails closed despite a legacy key
+ok 62 - a cold-cache credential-provider outage fails closed despite a legacy key
+  ---
+  duration_ms: 9.4508
+  type: 'test'
+  ...
+# Subtest: an empty configured provider fails closed instead of using the legacy key
+ok 63 - an empty configured provider fails closed instead of using the legacy key
+  ---
+  duration_ms: 2.3792
+  type: 'test'
+  ...
+# Subtest: a legacy-only configuration still authenticates with the shared key
+ok 64 - a legacy-only configuration still authenticates with the shared key
+  ---
+  duration_ms: 4.1878
+  type: 'test'
+  ...
+# Subtest: a hung cold-cache credential lookup is bounded by the Portal request deadline
+ok 65 - a hung cold-cache credential lookup is bounded by the Portal request deadline
+  ---
+  duration_ms: 36.2289
+  type: 'test'
+  ...
+# Subtest: the request deadline bounds a legacy provider that ignores abort signals
+ok 66 - the request deadline bounds a legacy provider that ignores abort signals
+  ---
+  duration_ms: 27.0096
+  type: 'test'
+  ...
+# Subtest: explicit credential rejection never falls back to the legacy key
+ok 67 - explicit credential rejection never falls back to the legacy key
+  ---
+  duration_ms: 26.5045
+  type: 'test'
+  ...
+# Subtest: a refresh outage after a 401 still fails closed
+ok 68 - a refresh outage after a 401 still fails closed
+  ---
+  duration_ms: 14.0446
+  type: 'test'
+  ...
+# Subtest: app directory reads use the app-bound credential
+ok 69 - app directory reads use the app-bound credential
+  ---
+  duration_ms: 4.5122
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-23T00:54:13.851Z","level":"warn","event":"portal_credential_proof_discovery_failed","error_name":"TimeoutError"}
+# Subtest: every non-success Portal response body is cancelled before rejection
+    # Subtest: redeem
+    ok 1 - redeem
+      ---
+      duration_ms: 57.9597
+      type: 'test'
+      ...
+    # Subtest: redeem generic rejection
+    ok 2 - redeem generic rejection
+      ---
+      duration_ms: 0.86
+      type: 'test'
+      ...
+    # Subtest: context
+    ok 3 - context
+      ---
+      duration_ms: 1.3284
+      type: 'test'
+      ...
+    # Subtest: directory
+    ok 4 - directory
+      ---
+      duration_ms: 0.6565
+      type: 'test'
+      ...
+    1..4
+ok 70 - every non-success Portal response body is cancelled before rejection
+  ---
+  duration_ms: 63.4419
+  type: 'test'
+  ...
+# Subtest: background proof logs safe discovery failures and keeps the 401 race quiet
+    # Subtest: discovery failure
+    ok 1 - discovery failure
+      ---
+      duration_ms: 9.5108
+      type: 'test'
+      ...
+    # Subtest: secret-shaped custom error names are not logged
+    ok 2 - secret-shaped custom error names are not logged
+      ---
+      duration_ms: 1.6271
+      type: 'test'
+      ...
+    # Subtest: expected registration race
+    ok 3 - expected registration race
+      ---
+      duration_ms: 4.73
+      type: 'test'
+      ...
+    1..3
+ok 71 - background proof logs safe discovery failures and keeps the 401 race quiet
+  ---
+  duration_ms: 17.5331
+  type: 'test'
+  ...
+# Subtest: an abort after credential discovery remains a hard credential failure
+ok 72 - an abort after credential discovery remains a hard credential failure
+  ---
+  duration_ms: 1.748
+  type: 'test'
+  ...
+# Subtest: production: all HTTP transport paths reject without sending credentials
+ok 73 - production: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 236.0565
+  type: 'test'
+  ...
+# Subtest: Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 74 - Render without NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 112.8443
+  type: 'test'
+  ...
+# Subtest: Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+ok 75 - Render with development NODE_ENV: all HTTP transport paths reject without sending credentials
+  ---
+  duration_ms: 113.7496
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=undefined
+ok 76 - local HTTP remains usable with NODE_ENV=undefined
+  ---
+  duration_ms: 164.589
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=development
+ok 77 - local HTTP remains usable with NODE_ENV=development
+  ---
+  duration_ms: 82.6966
+  type: 'test'
+  ...
+# Subtest: local HTTP remains usable with NODE_ENV=test
+ok 78 - local HTTP remains usable with NODE_ENV=test
+  ---
+  duration_ms: 97.6504
+  type: 'test'
+  ...
+# Subtest: real trusted HTTPS transport and downgrade redirects
+ok 79 - real trusted HTTPS transport and downgrade redirects
+  ---
+  duration_ms: 2830.2688
+  type: 'test'
+  ...
+# C2_TLS_RESULT eyJzdGF0dXMiOjAsInNpZ25hbCI6bnVsbCwiZXJyb3IiOm51bGwsInN0ZG91dCI6IlRBUCB2ZXJzaW9uIDEzXG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMC4xNDdaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU1BFTkRJTkdcIixcInN0YXR1c1wiOjMwMX1cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjEwLjE2NVpcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTQ1VSUkVOVFwiLFwic3RhdHVzXCI6MzAxfVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTAuMzU2WlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NQRU5ESU5HXCIsXCJzdGF0dXNcIjozMDJ9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMC4zNjJaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU0NVUlJFTlRcIixcInN0YXR1c1wiOjMwMn1cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjEwLjUzN1pcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTUEVORElOR1wiLFwic3RhdHVzXCI6MzAzfVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTAuNTQyWlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NDVVJSRU5UXCIsXCJzdGF0dXNcIjozMDN9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMC43ODVaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU1BFTkRJTkdcIixcInN0YXR1c1wiOjMwN31cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjEwLjc5M1pcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTQ1VSUkVOVFwiLFwic3RhdHVzXCI6MzA3fVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTEuMDU3WlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NQRU5ESU5HXCIsXCJzdGF0dXNcIjozMDh9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMS4wNjVaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU0NVUlJFTlRcIixcInN0YXR1c1wiOjMwOH1cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjExLjI3MlpcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTUEVORElOR1wiLFwic3RhdHVzXCI6MzAxfVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTEuMjc2WlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NDVVJSRU5UXCIsXCJzdGF0dXNcIjozMDF9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMS40NDJaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU1BFTkRJTkdcIixcInN0YXR1c1wiOjMwMn1cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjExLjQ0N1pcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTQ1VSUkVOVFwiLFwic3RhdHVzXCI6MzAyfVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTEuNjU0WlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NQRU5ESU5HXCIsXCJzdGF0dXNcIjozMDN9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMS42NzBaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU0NVUlJFTlRcIixcInN0YXR1c1wiOjMwM31cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjExLjg4OFpcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTUEVORElOR1wiLFwic3RhdHVzXCI6MzA3fVxuIyB7XCJ0aW1lc3RhbXBcIjpcIjIwMjYtMDktMjNUMDA6NTQ6MTEuODk2WlwiLFwibGV2ZWxcIjpcIndhcm5cIixcImV2ZW50XCI6XCJwb3J0YWxfY3JlZGVudGlhbF9wcm9vZl9mYWlsZWRcIixcInN0YWdlXCI6XCJBV1NDVVJSRU5UXCIsXCJzdGF0dXNcIjozMDd9XG4jIHtcInRpbWVzdGFtcFwiOlwiMjAyNi0wOS0yM1QwMDo1NDoxMi4wNjNaXCIsXCJsZXZlbFwiOlwid2FyblwiLFwiZXZlbnRcIjpcInBvcnRhbF9jcmVkZW50aWFsX3Byb29mX2ZhaWxlZFwiLFwic3RhZ2VcIjpcIkFXU1BFTkRJTkdcIixcInN0YXR1c1wiOjMwOH1cbiMge1widGltZXN0YW1wXCI6XCIyMDI2LTA5LTIzVDAwOjU0OjEyLjA3MVpcIixcImxldmVsXCI6XCJ3YXJuXCIsXCJldmVudFwiOlwicG9ydGFsX2NyZWRlbnRpYWxfcHJvb2ZfZmFpbGVkXCIsXCJzdGFnZVwiOlwiQVdTQ1VSUkVOVFwiLFwic3RhdHVzXCI6MzA4fVxuIyBTdWJ0ZXN0OiBIVFRQUyBzdWNjZWVkczsgcmVkaXJlY3RzIGNhbm5vdCBtb3ZlIGNyZWRlbnRpYWxzLCBib2RpZXMgb3IgcHJvb2YgdHJ1c3Rcbm9rIDEgLSBIVFRQUyBzdWNjZWVkczsgcmVkaXJlY3RzIGNhbm5vdCBtb3ZlIGNyZWRlbnRpYWxzLCBib2RpZXMgb3IgcHJvb2YgdHJ1c3RcbiAgLS0tXG4gIGR1cmF0aW9uX21zOiAyNDA0LjkyMTNcbiAgdHlwZTogJ3Rlc3QnXG4gIC4uLlxuMS4uMVxuIyB0ZXN0cyAxXG4jIHN1aXRlcyAwXG4jIHBhc3MgMVxuIyBmYWlsIDBcbiMgY2FuY2VsbGVkIDBcbiMgc2tpcHBlZCAwXG4jIHRvZG8gMFxuIyBkdXJhdGlvbl9tcyAyNjI0LjQ0NTJcbiIsInN0ZGVyciI6IiJ9
+# {"timestamp":"2026-09-23T00:54:10.870Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:10.953Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:10.974Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:10.981Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:11.036Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# Subtest: Portal revalidation fails closed and recovers without extending stale trust
+    # Subtest: a fresh session does not contact the Portal before its recheck is due
+    ok 1 - a fresh session does not contact the Portal before its recheck is due
+      ---
+      duration_ms: 14.5837
+      type: 'test'
+      ...
+    # Subtest: explicit local dev sign-in remains usable when Portal auth is unconfigured
+    ok 2 - explicit local dev sign-in remains usable when Portal auth is unconfigured
+      ---
+      duration_ms: 3.2657
+      type: 'test'
+      ...
+    # Subtest: an unconfigured connector never mistakes a migrated Portal session for dev
+    ok 3 - an unconfigured connector never mistakes a migrated Portal session for dev
+      ---
+      duration_ms: 7.7374
+      type: 'test'
+      ...
+    # Subtest: the session-origin column marks existing v0.1.2 rows as legacy
+    ok 4 - the session-origin column marks existing v0.1.2 rows as legacy
+      ---
+      duration_ms: 9.5996
+      type: 'test'
+      ...
+    # Subtest: a v0.1.2 writer into a new schema still creates a legacy session
+    ok 5 - a v0.1.2 writer into a new schema still creates a legacy session
+      ---
+      duration_ms: 81.794
+      type: 'test'
+      ...
+    # Subtest: a legacy admin must pass one live Portal check before outage access
+    ok 6 - a legacy admin must pass one live Portal check before outage access
+      ---
+      duration_ms: 10.817
+      type: 'test'
+      ...
+    # Subtest: a v0.2.1 elevated Portal row is re-proven before cache or outage use
+    ok 7 - a v0.2.1 elevated Portal row is re-proven before cache or outage use
+      ---
+      duration_ms: 4.0954
+      type: 'test'
+      ...
+    # Subtest: Portal SSO refuses a stale token after this app grant is removed
+    ok 8 - Portal SSO refuses a stale token after this app grant is removed
+      ---
+      duration_ms: 4.8571
+      type: 'test'
+      ...
+    # Subtest: Portal SSO marks only retryable failures as unavailable
+    ok 9 - Portal SSO marks only retryable failures as unavailable
+      ---
+      duration_ms: 19.7231
+      type: 'test'
+      ...
+    # Subtest: a successful recheck refreshes context
+    ok 10 - a successful recheck refreshes context
+      ---
+      duration_ms: 6.8283
+      type: 'test'
+      ...
+    # Subtest: an ADMIN_EMAILS entry cannot preserve a removed legacy app grant
+    ok 11 - an ADMIN_EMAILS entry cannot preserve a removed legacy app grant
+      ---
+      duration_ms: 3.6137
+      type: 'test'
+      ...
+    # Subtest: an ADMIN_EMAILS entry cannot preserve a removed handle session
+    ok 12 - an ADMIN_EMAILS entry cannot preserve a removed handle session
+      ---
+      duration_ms: 4.5737
+      type: 'test'
+      ...
+    # Subtest: a disabled person is signed out and the local session is destroyed
+    ok 13 - a disabled person is signed out and the local session is destroyed
+      ---
+      duration_ms: 4.2895
+      type: 'test'
+      ...
+    # Subtest: removing this app from a non-ops context destroys the session
+    ok 14 - removing this app from a non-ops context destroys the session
+      ---
+      duration_ms: 2.2599
+      type: 'test'
+      ...
+    # Subtest: ops remains authorized without an explicit app entry
+    ok 15 - ops remains authorized without an explicit app entry
+      ---
+      duration_ms: 2.9922
+      type: 'test'
+      ...
+    # Subtest: a network failure returns retryable 503 and recovery needs no new login
+    ok 16 - a network failure returns retryable 503 and recovery needs no new login
+      ---
+      duration_ms: 2.7419
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-23T00:54:11.074Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:11.080Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:11.081Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.085Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.086Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.088Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.089Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.091Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.093Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# {"timestamp":"2026-09-23T00:54:11.109Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.112Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.114Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.115Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.116Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.118Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.124Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.129Z","level":"warn","event":"portal_revalidation_denied","error_name":"TypeError","portal_unavailable":false}
+    # Subtest: a hung Portal request is bounded and denied
+    ok 17 - a hung Portal request is bounded and denied
+      ---
+      duration_ms: 38.3108
+      type: 'test'
+      ...
+    # Subtest: Portal errors and malformed JSON are denied, not served from cache
+    ok 18 - Portal errors and malformed JSON are denied, not served from cache
+      ---
+      duration_ms: 6.0977
+      type: 'test'
+      ...
+    # Subtest: authorization-breaking context shapes are rejected
+    ok 19 - authorization-breaking context shapes are rejected
+      ---
+      duration_ms: 7.4353
+      type: 'test'
+      ...
+    # Subtest: a malformed inactive response cannot revoke the wrong person's session
+    ok 20 - a malformed inactive response cannot revoke the wrong person's session
+      ---
+      duration_ms: 1.4924
+      type: 'test'
+      ...
+    # Subtest: hard session expiry still destroys the local session
+    ok 21 - hard session expiry still destroys the local session
+      ---
+      duration_ms: 0.8902
+      type: 'test'
+      ...
+    # Subtest: cached offline admin access is disabled by default and explicit when enabled
+    ok 22 - cached offline admin access is disabled by default and explicit when enabled
+      ---
+      duration_ms: 1.9419
+      type: 'test'
+      ...
+    # Subtest: cached offline admin accepts only retryable Portal HTTP responses
+    ok 23 - cached offline admin accepts only retryable Portal HTTP responses
+      ---
+      duration_ms: 9.5736
+      type: 'test'
+      ...
+    # Subtest: cached offline admin denies auth, protocol, and malformed Portal responses
+    ok 24 - cached offline admin denies auth, protocol, and malformed Portal responses
+      ---
+      duration_ms: 13.8167
+      type: 'test'
+      ...
+    # Subtest: cached offline admin denies local URL and timeout configuration errors
+    ok 25 - cached offline admin denies local URL and timeout configuration errors
+      ---
+      duration_ms: 11.3145
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-23T00:54:11.154Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.157Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.159Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.160Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.163Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+# {"timestamp":"2026-09-23T00:54:11.167Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: cached offline admin accepts a real Portal timeout
+    ok 26 - cached offline admin accepts a real Portal timeout
+      ---
+      duration_ms: 11.234
+      type: 'test'
+      ...
+    # Subtest: direct Google offline-admin sign-in rejects hard failures but permits retryable outages
+    ok 27 - direct Google offline-admin sign-in rejects hard failures but permits retryable outages
+      ---
+      duration_ms: 8.8782
+      type: 'test'
+      ...
+    # Subtest: offline admin bootstrap is denied when Portal configuration is absent
+    ok 28 - offline admin bootstrap is denied when Portal configuration is absent
+      ---
+      duration_ms: 1.6917
+      type: 'test'
+      ...
+    1..28
+ok 80 - Portal revalidation fails closed and recovers without extending stale trust
+  ---
+  duration_ms: 303.9404
+  type: 'test'
+  ...
+# Subtest: credential discovery failures never activate cached offline-admin access
+    # Subtest: sync: IAM access denied
+    ok 1 - sync: IAM access denied
+      ---
+      duration_ms: 2.3953
+      type: 'test'
+      ...
+    # Subtest: async: IAM access denied
+    ok 2 - async: IAM access denied
+      ---
+      duration_ms: 2.0388
+      type: 'test'
+      ...
+    # Subtest: sync: deleted secret
+    ok 3 - sync: deleted secret
+      ---
+      duration_ms: 2.1328
+      type: 'test'
+      ...
+    # Subtest: async: deleted secret
+    ok 4 - async: deleted secret
+      ---
+      duration_ms: 1.3925
+      type: 'test'
+      ...
+    # Subtest: sync: malformed secret
+    ok 5 - sync: malformed secret
+      ---
+      duration_ms: 2.5915
+      type: 'test'
+      ...
+    # Subtest: async: malformed secret
+    ok 6 - async: malformed secret
+      ---
+      duration_ms: 3.3071
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-23T00:54:11.198Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: sync: provider timeout
+    ok 7 - sync: provider timeout
+      ---
+      duration_ms: 30.7512
+      type: 'test'
+      ...
+# {"timestamp":"2026-09-23T00:54:11.229Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":false}
+    # Subtest: async: provider timeout
+    ok 8 - async: provider timeout
+      ---
+      duration_ms: 31.5976
+      type: 'test'
+      ...
+    1..8
+ok 81 - credential discovery failures never activate cached offline-admin access
+  ---
+  duration_ms: 77.9677
+  type: 'test'
+  ...
+# Subtest: simultaneous stale revalidations share one Portal call and clean up
+    # Subtest: SQLite connector
+    ok 1 - SQLite connector
+      ---
+      duration_ms: 5.4152
+      type: 'test'
+      ...
+    # Subtest: async connector
+    ok 2 - async connector
+      ---
+      duration_ms: 4.2255
+      type: 'test'
+      ...
+    1..2
+ok 82 - simultaneous stale revalidations share one Portal call and clean up
+  ---
+  duration_ms: 10.2905
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-23T00:54:11.248Z","level":"warn","event":"portal_revalidation_denied","error_name":"Error","portal_unavailable":true}
+# Subtest: the optional async store lease coalesces across connector instances
+ok 83 - the optional async store lease coalesces across connector instances
+  ---
+  duration_ms: 2.2446
+  type: 'test'
+  ...
+# Subtest: async session stores preserve revoke-now and hard-expiry behavior
+ok 84 - async session stores preserve revoke-now and hard-expiry behavior
+  ---
+  duration_ms: 3.1719
+  type: 'test'
+  ...
+# Subtest: async v0.2.1 elevated rows require one live authority recheck
+ok 85 - async v0.2.1 elevated rows require one live authority recheck
+  ---
+  duration_ms: 3.4594
+  type: 'test'
+  ...
+# Subtest: direct Google sign-in respects the credential-migration boundary
+    # Subtest: a provider-absent legacy deployment keeps its fixed-lifetime flow
+    ok 1 - a provider-absent legacy deployment keeps its fixed-lifetime flow
+      ---
+      duration_ms: 1.8294
+      type: 'test'
+      ...
+    # Subtest: SQLite sessions fail before legacy Portal authentication
+    ok 2 - SQLite sessions fail before legacy Portal authentication
+      ---
+      duration_ms: 0.9925
+      type: 'test'
+      ...
+    # Subtest: async sessions fail before legacy Portal authentication
+    ok 3 - async sessions fail before legacy Portal authentication
+      ---
+      duration_ms: 1.0612
+      type: 'test'
+      ...
+    1..3
+ok 86 - direct Google sign-in respects the credential-migration boundary
+  ---
+  duration_ms: 26.6126
+  type: 'test'
+  ...
+# Subtest: a 503 records whether the Portal was actually unavailable
+ok 87 - a 503 records whether the Portal was actually unavailable
+  ---
+  duration_ms: 1.5597
+  type: 'test'
+  ...
+# Subtest: SQLite stores only a digest that cannot be replayed as a bearer
+ok 88 - SQLite stores only a digest that cannot be replayed as a bearer
+  ---
+  duration_ms: 2.0164
+  type: 'test'
+  ...
+# Subtest: async insert stores the digest, not the raw token
+ok 89 - async insert stores the digest, not the raw token
+  ---
+  duration_ms: 0.3803
+  type: 'test'
+  ...
+# Subtest: async get resolves by raw token and returns the raw token on the session
+ok 90 - async get resolves by raw token and returns the raw token on the session
+  ---
+  duration_ms: 0.2943
+  type: 'test'
+  ...
+# Subtest: a copied stored digest is NOT accepted as a cookie
+ok 91 - a copied stored digest is NOT accepted as a cookie
+  ---
+  duration_ms: 0.3314
+  type: 'test'
+  ...
+# Subtest: a legacy raw row authenticates once and is upgraded in place
+ok 92 - a legacy raw row authenticates once and is upgraded in place
+  ---
+  duration_ms: 0.4397
+  type: 'test'
+  ...
+# Subtest: sign-out removes the session for a digest-stored row
+ok 93 - sign-out removes the session for a digest-stored row
+  ---
+  duration_ms: 0.2859
+  type: 'test'
+  ...
+# Subtest: sign-out removes the session for a legacy raw row
+ok 94 - sign-out removes the session for a legacy raw row
+  ---
+  duration_ms: 0.3226
+  type: 'test'
+  ...
+# Subtest: the advisory-lock key is the raw token, stable across a migration
+ok 95 - the advisory-lock key is the raw token, stable across a migration
+  ---
+  duration_ms: 1.3065
+  type: 'test'
+  ...
+# Subtest: a migration write failure still authenticates
+ok 96 - a migration write failure still authenticates
+  ---
+  duration_ms: 0.6246
+  type: 'test'
+  ...
+# Subtest: concurrent requests on the same legacy raw cookie both resolve (migration race)
+ok 97 - concurrent requests on the same legacy raw cookie both resolve (migration race)
+  ---
+  duration_ms: 0.6735
+  type: 'test'
+  ...
+1..97
+# tests 151
+# suites 0
+# pass 151
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5876.2416

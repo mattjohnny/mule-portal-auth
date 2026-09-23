@@ -1,0 +1,102 @@
+{
+  "runtime": "v22.23.2",
+  "artifactSha256": "b04ba3cda50ea7f7d939f6da3ff02ec4a9b9d7b309674781cb7ccebc1019204d",
+  "results": [
+    {
+      "name": "production-guard",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "production: all HTTP transport paths reject without sending credentials"
+      ],
+      "tlsFailed": []
+    },
+    {
+      "name": "render-guard",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "Render without NODE_ENV: all HTTP transport paths reject without sending credentials",
+        "Render with development NODE_ENV: all HTTP transport paths reject without sending credentials"
+      ],
+      "tlsFailed": []
+    },
+    {
+      "name": "development-compatibility",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "local HTTP remains usable with NODE_ENV=undefined",
+        "local HTTP remains usable with NODE_ENV=development",
+        "local HTTP remains usable with NODE_ENV=test"
+      ],
+      "tlsFailed": []
+    },
+    {
+      "name": "direct-request-guard",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "production: all HTTP transport paths reject without sending credentials",
+        "Render without NODE_ENV: all HTTP transport paths reject without sending credentials",
+        "Render with development NODE_ENV: all HTTP transport paths reject without sending credentials"
+      ],
+      "tlsFailed": []
+    },
+    {
+      "name": "proof-url-guard",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "production: all HTTP transport paths reject without sending credentials",
+        "Render without NODE_ENV: all HTTP transport paths reject without sending credentials",
+        "Render with development NODE_ENV: all HTTP transport paths reject without sending credentials"
+      ],
+      "tlsFailed": []
+    },
+    {
+      "name": "credential-redirect",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "real trusted HTTPS transport and downgrade redirects"
+      ],
+      "tlsFailed": [
+        "HTTPS succeeds; redirects cannot move credentials, bodies or proof trust"
+      ]
+    },
+    {
+      "name": "legacy-redirect",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "real trusted HTTPS transport and downgrade redirects"
+      ],
+      "tlsFailed": [
+        "HTTPS succeeds; redirects cannot move credentials, bodies or proof trust"
+      ]
+    },
+    {
+      "name": "proof-redirect",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "real trusted HTTPS transport and downgrade redirects"
+      ],
+      "tlsFailed": [
+        "HTTPS succeeds; redirects cannot move credentials, bodies or proof trust"
+      ]
+    },
+    {
+      "name": "outage-classification",
+      "status": "assertion-killed",
+      "modulePreflight": "syntax-and-load-passed",
+      "failed": [
+        "production: all HTTP transport paths reject without sending credentials",
+        "Render without NODE_ENV: all HTTP transport paths reject without sending credentials",
+        "Render with development NODE_ENV: all HTTP transport paths reject without sending credentials"
+      ],
+      "tlsFailed": []
+    }
+  ]
+}
