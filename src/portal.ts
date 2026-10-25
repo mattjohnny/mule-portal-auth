@@ -1,5 +1,7 @@
 import type {
   Context,
+  PortalAppDirectory,
+  PortalDirectoryOptions,
   PortalCredentialProvider,
   PortalServiceCredential,
 } from "./types.js";
@@ -38,6 +40,7 @@ export interface PortalClientOpts {
   appName: string;
   requestTimeoutMs: number;
   serviceAuth: PortalServiceAuth;
+  authorityMode?: "cached" | "request";
 }
 
 export class PortalServiceAuth {
@@ -359,43 +362,64 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function validateActiveContext(value: unknown, expectedEmail: string): Context {
+function validEmail(value: unknown): value is string {
+  return typeof value === "string" && /^[^\s@]+@[^\s@]+$/.test(value);
+}
+
+function stringSet(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim() === item && !!item) &&
+    new Set(value).size === value.length;
+}
+
+function validRoles(value: unknown, primary: unknown): boolean {
+  return typeof primary === "string" && PORTAL_ROLES.has(primary) && stringSet(value) &&
+    value[0] === primary && value.slice(1).every((role) => role === "finance");
+}
+
+function validLocations(value: unknown, requireCanonical: boolean): boolean {
+  if (value === "all") return true;
+  return Array.isArray(value) && value.every((location) =>
+    isObject(location) && Number.isSafeInteger(location.id) && Number(location.id) > 0 &&
+    typeof location.key === "string" && !!location.key && location.key.trim() === location.key &&
+    typeof location.name === "string" && !!location.name &&
+    (typeof location.is_mule === "boolean" || (!requireCanonical && location.is_mule === undefined))
+  ) && new Set(value.map((location) => location.id)).size === value.length &&
+    new Set(value.map((location) => location.key)).size === value.length;
+}
+
+function validateActiveContext(value: unknown, expectedEmail: string, strict = false): Context {
   if (!isObject(value))
     throw new PortalError("The Portal returned an invalid context response.");
   const ctx = value as unknown as Context;
   const email = typeof ctx.email === "string" ? ctx.email.toLowerCase() : "";
   const roleIsValid = typeof ctx.role === "string" && PORTAL_ROLES.has(ctx.role);
   const adminInvariant = roleIsValid && ctx.is_admin === (ctx.role === "ops");
-  const locationsInvariant = ctx.is_admin
-    ? ctx.locations === "all"
-    : Array.isArray(ctx.locations) &&
-      ctx.locations.every(
-        (location) =>
-          isObject(location) &&
-          Number.isInteger(location.id) &&
-          location.id > 0 &&
-          typeof location.key === "string" &&
-          !!location.key &&
-          typeof location.name === "string" &&
-          !!location.name
-      );
+  const locationsInvariant = validLocations(ctx.locations, strict) &&
+    (ctx.is_admin ? ctx.locations === "all" : ctx.locations !== "all");
   const appsInvariant =
-    Array.isArray(ctx.apps) && ctx.apps.every((app) => typeof app === "string" && !!app);
+    stringSet(ctx.apps);
+  const roles = !strict && ctx.roles === undefined ? [ctx.role] : ctx.roles;
+  const permissions = !strict && ctx.app_permissions === undefined ? {} : ctx.app_permissions;
+  const permissionsInvariant = isObject(permissions) && Object.entries(permissions).every(
+    ([app, values]) => appsInvariant && ctx.apps.includes(app) && stringSet(values)
+  );
   if (
     ctx.active !== true ||
     ctx.status !== "active" ||
-    !email ||
+    !validEmail(email) ||
     email !== expectedEmail.toLowerCase() ||
     typeof ctx.name !== "string" ||
     !adminInvariant ||
     !locationsInvariant ||
     !appsInvariant ||
-    !Number.isInteger(ctx.ctx_version) ||
+    !validRoles(roles, ctx.role) ||
+    !permissionsInvariant ||
+    !Number.isSafeInteger(ctx.ctx_version) ||
     ctx.ctx_version < 1
   ) {
     throw new PortalError("The Portal returned an invalid context response.");
   }
-  return { ...ctx, email };
+  return { ...ctx, email, roles: roles as string[], app_permissions: permissions as Record<string, string[]> };
 }
 
 // Redeem a one-time SSO token the Portal minted. Returns the legacy fields plus
@@ -460,12 +484,14 @@ export async function redeemSso(
     } catch {
       throw new PortalError("The Portal returned an invalid sign-in response.");
     }
-    if (!body?.email) throw new PortalError("The Portal didn't return a valid account.");
+    if (!validEmail(body?.email)) throw new PortalError("The Portal didn't return a valid account.");
     if (!body.context)
       throw new PortalError("The Portal didn't return current access details.");
-    if (!body.revalidation_handle && opts.serviceAuth.hasCredentialProvider())
+    if (body.revalidation_handle !== undefined && typeof body.revalidation_handle !== "string")
+      throw new PortalError("The Portal returned an invalid sign-in response.");
+    if (!body.revalidation_handle?.trim() && opts.serviceAuth.hasCredentialProvider())
       throw new PortalError("The Portal didn't return a revalidation handle.");
-    const context = validateActiveContext(body.context, body.email);
+    const context = validateActiveContext(body.context, body.email, opts.authorityMode === "request");
     return {
       email: body.email,
       name: body.name || body.email,
@@ -511,7 +537,7 @@ export async function fetchContext(
               body: JSON.stringify({ handle: revalidationHandle }),
               signal,
             }
-          : { headers, signal },
+          : { headers, signal, cache: opts.authorityMode === "request" ? "no-store" : "default" },
         useHandle ? "normal" : "legacy-only"
       );
     } catch (error) {
@@ -540,22 +566,62 @@ export async function fetchContext(
         return null;
       throw new PortalError("The Portal returned an invalid context response.");
     }
-    return validateActiveContext(body, email);
+    return validateActiveContext(body, email, opts.authorityMode === "request");
   } finally {
     done();
   }
 }
 
-export async function fetchAppDirectory(opts: PortalClientOpts): Promise<unknown> {
+function validateDirectory(value: unknown, options: PortalDirectoryOptions, startedAt: number): PortalAppDirectory {
+  const invalid = () => new PortalError("The Portal returned an invalid directory response.");
+  if (!isObject(value) || typeof value.syncedAt !== "string" ||
+    !Array.isArray(value.locations) || !validLocations(value.locations, true) ||
+    !Array.isArray(value.people)) throw invalid();
+  // Every call is a new read; the timestamp also rejects stale intermediary
+  // responses. Permit 30 seconds of server clock skew, never a cached lease.
+  const syncedAt = Date.parse(value.syncedAt);
+  const receivedAt = Date.now();
+  if (!Number.isFinite(syncedAt) || syncedAt < startedAt - 30_000 || Math.abs(receivedAt - syncedAt) > 30_000)
+    throw invalid();
+  const directory = value as unknown as PortalAppDirectory;
+  if (!options.include_non_mule && directory.locations.some((location) => !location.is_mule))
+    throw invalid();
+  const locationsById = new Map(directory.locations.map((location) => [location.id, location]));
+  const emails = new Set<string>();
+  for (const person of directory.people) {
+    if (!isObject(person) || !validEmail(person.email) || emails.has(person.email.toLowerCase()) ||
+      typeof person.name !== "string" || !validRoles(person.roles, person.role) ||
+      !["active", "disabled"].includes(person.status) || !stringSet(person.permissions) ||
+      !Number.isSafeInteger(person.ctx_version) || person.ctx_version < 1 ||
+      !(person.last_login === null || (typeof person.last_login === "string" && Number.isFinite(Date.parse(person.last_login)))) ||
+      !validLocations(person.locations, true) ||
+      (person.role === "ops" ? person.locations !== "all" : person.locations === "all")) throw invalid();
+    emails.add(person.email.toLowerCase());
+    if (person.locations !== "all" && person.locations.some((location) => {
+      const canonical = locationsById.get(location.id);
+      return !canonical || canonical.key !== location.key || canonical.name !== location.name || canonical.is_mule !== location.is_mule;
+    })) throw invalid();
+  }
+  return directory;
+}
+
+export async function fetchAppDirectory(
+  opts: PortalClientOpts,
+  options: PortalDirectoryOptions = {}
+): Promise<PortalAppDirectory> {
   const endpoint = portalEndpoint(opts.portalUrl, "/api/app-directory");
   // The query is required only by the legacy fallback. Portal ignores it as
   // an authority source for app credentials and verifies that it matches.
   endpoint.searchParams.set("app", opts.appName);
+  if (options.include_non_mule !== undefined && typeof options.include_non_mule !== "boolean")
+    throw new PortalError("Invalid Portal directory options.");
+  if (options.include_non_mule) endpoint.searchParams.set("include_non_mule", "true");
+  const startedAt = Date.now();
   const { signal, done } = requestSignal(opts.requestTimeoutMs);
   try {
     let response: Response;
     try {
-      response = await opts.serviceAuth.request(endpoint.toString(), { signal });
+      response = await opts.serviceAuth.request(endpoint.toString(), { signal, cache: "no-store" });
     } catch (error) {
       if (error instanceof PortalError) throw error;
       throw new PortalError("Couldn't reach the Portal directory.", false, true);
@@ -572,7 +638,7 @@ export async function fetchAppDirectory(opts: PortalClientOpts): Promise<unknown
       );
     }
     try {
-      return await response.json();
+      return validateDirectory(await response.json(), options, startedAt);
     } catch {
       throw new PortalError("The Portal returned an invalid directory response.");
     }

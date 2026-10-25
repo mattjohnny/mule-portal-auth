@@ -28,7 +28,7 @@ const mutations = [
   ["outage-classification", 'new PortalError("Portal URL must use HTTPS in production or on Render.")', 'new PortalError("Portal URL must use HTTPS in production or on Render.", false, true)', ["all HTTP transport paths"]],
 ];
 function run(name) {
-  const result = spawnSync(process.execPath, ["--test", "test/portal-transport.test.js"], { encoding: "utf8", timeout: 45_000 });
+  const result = spawnSync(process.execPath, ["--test", "--test-reporter=tap", "test/portal-transport.test.js"], { encoding: "utf8", timeout: 45_000 });
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   writeFileSync(`${output}/${name}.txt`, text.replace(/[\t ]+$/gm, "").trimEnd() + "\n");
   assert.ifError(result.error);

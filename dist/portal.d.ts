@@ -1,4 +1,4 @@
-import type { Context, PortalCredentialProvider } from "./types.js";
+import type { Context, PortalAppDirectory, PortalDirectoryOptions, PortalCredentialProvider } from "./types.js";
 export declare class PortalError extends Error {
     signedOut: boolean;
     unavailable: boolean;
@@ -12,6 +12,7 @@ export interface PortalClientOpts {
     appName: string;
     requestTimeoutMs: number;
     serviceAuth: PortalServiceAuth;
+    authorityMode?: "cached" | "request";
 }
 export declare class PortalServiceAuth {
     private readonly provider;
@@ -41,4 +42,4 @@ export declare function redeemSso(opts: PortalClientOpts, ssoToken: string): Pro
     revalidationHandle: string;
 }>;
 export declare function fetchContext(opts: PortalClientOpts, revalidationHandle: string | undefined, email: string): Promise<Context | null>;
-export declare function fetchAppDirectory(opts: PortalClientOpts): Promise<unknown>;
+export declare function fetchAppDirectory(opts: PortalClientOpts, options?: PortalDirectoryOptions): Promise<PortalAppDirectory>;

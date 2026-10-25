@@ -33,7 +33,9 @@ async function portal(t) {
     for await (const chunk of req) body += chunk;
     received.push({ path: req.url, headers: req.headers, body });
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify(req.url.startsWith("/api/context") ? context : {
+    res.end(JSON.stringify(req.url.startsWith("/api/app-directory") ? {
+      syncedAt: new Date().toISOString(), locations: [], people: [],
+    } : req.url.startsWith("/api/context") ? context : {
       email: context.email, context, revalidation_handle: "synthetic-handle", ok: true,
     }));
   });
@@ -120,7 +122,7 @@ for (const nodeEnv of [undefined, "development", "test"]) {
 test("real trusted HTTPS transport and downgrade redirects", (t) => {
   const env = { ...process.env, NODE_EXTRA_CA_CERTS: fileURLToPath(new URL("./fixtures/localhost-cert.pem", import.meta.url)), NODE_ENV: "production", RENDER: "true" };
   delete env.NODE_TEST_CONTEXT;
-  const result = spawnSync(process.execPath, ["--test", fileURLToPath(new URL("./fixtures/transport-tls.mjs", import.meta.url))], {
+  const result = spawnSync(process.execPath, ["--test", "--test-reporter=tap", fileURLToPath(new URL("./fixtures/transport-tls.mjs", import.meta.url))], {
     env,
     encoding: "utf8", timeout: 30_000,
   });

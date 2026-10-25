@@ -27,7 +27,9 @@ test("HTTPS succeeds; redirects cannot move credentials, bodies or proof trust",
     for await (const chunk of req) body += chunk;
     leaked.push({ path: req.url, body, headers: req.headers });
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ ...context, email: context.email, context, revalidation_handle: "synthetic-handle" }));
+    res.end(JSON.stringify(req.url.startsWith("/api/app-directory") ? {
+      syncedAt: new Date().toISOString(), locations: [], people: [],
+    } : { ...context, email: context.email, context, revalidation_handle: "synthetic-handle" }));
   }));
   let redirectStatus = 0;
   let redirectTarget = "";
@@ -45,7 +47,9 @@ test("HTTPS succeeds; redirects cannot move credentials, bodies or proof trust",
       return;
     }
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify(req.url.startsWith("/api/context") ? context : { email: context.email, context, revalidation_handle: "synthetic-handle", ok: true }));
+    res.end(JSON.stringify(req.url.startsWith("/api/app-directory") ? {
+      syncedAt: new Date().toISOString(), locations: [], people: [],
+    } : req.url.startsWith("/api/context") ? context : { email: context.email, context, revalidation_handle: "synthetic-handle", ok: true }));
   });
   const port = await listen(t, server);
   const portalUrl = `https://127.0.0.1:${port}`;
