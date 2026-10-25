@@ -149,9 +149,58 @@ Remove the shared key only after that session drain and Portal telemetry's clean
 
 ## Revalidation concurrency
 
-Simultaneous stale requests for the same session share one Portal context call
+In the default cached mode, simultaneous stale requests for the same session share one Portal context call
 inside each connector process. The in-flight entry is removed after success or
 failure, so a later request can retry normally.
+
+### Request authority (unreleased, issue #8)
+
+HR must use `authorityMode: "request"` with either `createPortalAuth` or
+`createPortalAuthAsync`. Mount `requireAuth` on every protected view, download,
+and mutation. Each invocation, including `requireAdmin` and `revalidateIfStale`,
+performs a new Portal lookup. `revalidateMs: 0` alone does not provide this
+guarantee: cached mode still shares in-flight lookups.
+
+Request mode requires the complete current `roles`, `app_permissions`, and
+canonical location fields. It requires an explicit app grant even for ops,
+refuses offline/dev fallback, and never persists refreshed context snapshots.
+This prevents a late response from overwriting newer access state. An inactive
+or revoked reply deletes the local session; an older active response cannot
+admit a session that has since disappeared. The context attached to the request
+is that request's authority result. Calls that began before a Portal change are
+not a substitute for a new authorization check after that change.
+
+`Context.role`, `Session.role`, and `is_admin` retain their primary-role meaning.
+`roles` includes that primary role first and validated additional roles;
+`app_permissions` is a sparse map of app keys to permission lists. A missing app
+key or empty list grants no permission. Apps apply their domain policy using
+these facts and exact canonical locations. The connector adds no HR policy.
+The new fields are optional in the TypeScript interface so older scalar
+consumers still compile. In cached mode only, absent legacy fields normalize to
+`[role]` and `{}`; present malformed claims always fail validation. Default
+cached-mode timing, coalescing, and explicit outage behavior remain unchanged.
+
+`readAppDirectory({ include_non_mule: true })` returns `PortalAppDirectory`:
+`syncedAt`, canonical `locations` (including required boolean `is_mule`), and
+`people` with `role`, `roles`, `permissions`, `status`, `locations`,
+`ctx_version`, and `last_login`. Non-Mule catalogue and person locations require
+the explicit option. Disabled people may remain in the directory: callers must
+check `status` before selecting an eligible processor or recipient.
+
+Every directory call fetches afresh with `cache: "no-store"`; transport failure,
+missing fields, duplicate/contradictory identities or locations, and timestamps
+outside a 30-second clock-skew window are rejected. No saved directory is used
+as a fallback. The timestamp is a sanity check, not a permission lease: fetch
+again before a later eligibility decision. `getContext` reads an already
+resolved snapshot and does not itself revalidate.
+
+This change requires the matching Portal roles/permissions and directory
+contract for Portal issues #92 and #93. The publication counterpart is
+`f593c2bc4b4cd57edfb4bf52f4759ff0481f9799`; the
+[local verification summary](docs/evidence/authority-2026-10-25/README.md)
+identifies the original verified counterpart and evidence scope.
+Release tagging and consumer pins remain separate gates; the package version
+is still `0.2.4`.
 
 An async store shared by multiple service instances can additionally implement:
 

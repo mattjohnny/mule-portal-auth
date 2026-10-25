@@ -1,6 +1,6 @@
 import type { Response, NextFunction } from "express";
-import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, Session } from "./types.js";
-export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
+import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, PortalAppDirectory, PortalDirectoryOptions, Session } from "./types.js";
+export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalAppDirectory, PortalDirectoryOptions, PortalDirectoryLocation, PortalDirectoryPerson, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
 export type { PortalCredentialProvider, PortalCredentialStage, PortalServiceCredential, } from "./types.js";
 export { PortalCredentialError, PortalError } from "./portal.js";
 export declare function sessionTokenDigest(token: string): string;
@@ -14,7 +14,7 @@ export declare function createPortalAuth(config: PortalAuthConfig): {
     requireAdmin: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;
     revalidateIfStale: (session: Session) => Promise<Session | null>;
     getContext: (src: Session | PortalAuthedRequest) => Context | null;
-    readAppDirectory: () => Promise<unknown>;
+    readAppDirectory: (options?: PortalDirectoryOptions) => Promise<PortalAppDirectory>;
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
@@ -30,7 +30,7 @@ export declare function createPortalAuthAsync(config: AsyncPortalAuthConfig): {
     requireAdmin: (req: PortalAuthedRequest, res: Response, next: NextFunction) => void;
     revalidateIfStale: (session: Session) => Promise<Session | null>;
     getContext: (src: Session | PortalAuthedRequest) => Context | null;
-    readAppDirectory: () => Promise<unknown>;
+    readAppDirectory: (options?: PortalDirectoryOptions) => Promise<PortalAppDirectory>;
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;

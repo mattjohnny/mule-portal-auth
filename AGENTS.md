@@ -17,3 +17,15 @@ verification to run these tests.
 
 Package review/merge does not establish consumer adoption. Verify each adopted
 lockfile's resolved commit, installed artifact and consumer behavior separately.
+
+# Request authority
+
+Keep `authorityMode: "request"` opt-in for both public connectors. Every
+protected request must begin its own Portal lookup; neither TTL-zero nor an
+earlier in-flight lookup satisfies that guarantee. Request results are local to
+that request, never saved over later authority. Preserve cached-mode behavior
+for existing apps. Strict claims and directory validation must fail closed.
+
+Run `test/authority-contract.test.js` against real localhost HTTP and Express,
+and `scripts/verify-authority-mutations.mjs` after building emitted artifacts.
+Do not run builds or integration tests concurrently with mutation scripts.

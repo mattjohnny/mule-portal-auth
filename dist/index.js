@@ -12,6 +12,11 @@ const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most ever
 const DEFAULT_PORTAL_TIMEOUT_MS = 5_000;
 const PORTAL_AUTHORITY_SOURCE = "portal-v2";
 const GOOGLE_AUTHORITY_SOURCE = "google-v2";
+function usesRequestAuthority(mode) {
+    if (mode !== undefined && mode !== "cached" && mode !== "request")
+        throw new PortalError("Invalid Portal authorityMode configuration.");
+    return mode === "request";
+}
 // requireAuth answers one 503 for every reason revalidation can fail, and the
 // message names the Portal because that is the common case. It is not the only
 // case: a shared session store can fail locally, and a store implementing
@@ -43,6 +48,7 @@ function hasCurrentAuthorityProvenance(source) {
 // Mule app shares (identity-and-access.md §8). Retire the app's copied auth.ts
 // role/location logic and read from the context this exposes instead.
 export function createPortalAuth(config) {
+    const requestAuthority = usesRequestAuthority(config.authorityMode);
     const db = config.db;
     const appName = config.appName;
     const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
@@ -57,7 +63,7 @@ export function createPortalAuth(config) {
     const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
     const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
     const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs, appName);
-    const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth };
+    const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode: config.authorityMode };
     db.exec(`
     CREATE TABLE IF NOT EXISTS portal_sessions (
       token          TEXT PRIMARY KEY,
@@ -163,7 +169,7 @@ export function createPortalAuth(config) {
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
-        if (!context.active || (!context.is_admin && !context.apps.includes(appName)))
+        if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
         return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
     }
@@ -209,7 +215,8 @@ export function createPortalAuth(config) {
             ctx = await fetchContext(portal, undefined, email);
         }
         catch (error) {
-            if (allowOfflineAdmin &&
+            if (!requestAuthority &&
+                allowOfflineAdmin &&
                 adminEmails.has(email) &&
                 error instanceof PortalError &&
                 error.unavailable) {
@@ -219,7 +226,7 @@ export function createPortalAuth(config) {
         }
         if (!ctx)
             throw new PortalError("You don't have access to this app yet. Ask an admin in the Mule Portal.");
-        if (!ctx.is_admin && !ctx.apps.includes(appName))
+        if ((requestAuthority || !ctx.is_admin) && !ctx.apps.includes(appName))
             throw new PortalError("You haven't been given access to this app yet. Ask an admin in the Mule Portal.");
         return startLocalSession(ctx, GOOGLE_AUTHORITY_SOURCE);
     }
@@ -246,13 +253,14 @@ export function createPortalAuth(config) {
         // Old portal/google/legacy rows can contain the local v0.2.1 ADMIN_EMAILS
         // elevation. Even if their timestamp is recent, make the first request
         // after upgrade prove the Portal-authoritative context.
-        if (hasCurrentAuthorityProvenance(row.source) &&
+        if (!requestAuthority &&
+            hasCurrentAuthorityProvenance(row.source) &&
             Date.now() - row.last_validated < revalidateMs)
             return rowToSession(row);
         if (!portalUrl || !serviceAuth.configured()) {
             // Only an explicitly created dev session may run without Portal config.
             // Existing production rows migrate with source='legacy' and deny.
-            if (row.source === "dev")
+            if (!requestAuthority && row.source === "dev")
                 return rowToSession(row);
             throw new PortalError("Portal access verification isn't configured.");
         }
@@ -261,7 +269,8 @@ export function createPortalAuth(config) {
             ctx = await fetchContext(portal, session.revalidationHandle, session.email);
         }
         catch (error) {
-            if (allowOfflineAdmin &&
+            if (!requestAuthority &&
+                allowOfflineAdmin &&
                 adminEmails.has(session.email) &&
                 hasCurrentAuthorityProvenance(row.source) &&
                 error instanceof PortalError &&
@@ -273,11 +282,18 @@ export function createPortalAuth(config) {
             destroy(session.token);
             return null;
         }
-        if (!ctx.is_admin && !ctx.apps.includes(appName)) {
+        if ((requestAuthority || !ctx.is_admin) && !ctx.apps.includes(appName)) {
             destroy(session.token);
             return null;
         }
-        saveContext(session.token, ctx);
+        // Request authority belongs only to this request: never let an older response
+        // overwrite a newer permission/location snapshot in the session store.
+        if (requestAuthority) {
+            if (!getRow(session.token))
+                return null;
+        }
+        else
+            saveContext(session.token, ctx);
         return {
             token: session.token,
             email: ctx.email,
@@ -288,6 +304,9 @@ export function createPortalAuth(config) {
         };
     }
     function revalidateIfStale(session) {
+        // TTL zero still shares earlier in-flight work; request mode must never do so.
+        if (requestAuthority)
+            return revalidateOnce(session);
         const existing = inFlightRevalidations.get(session.token);
         if (existing)
             return existing;
@@ -360,10 +379,10 @@ export function createPortalAuth(config) {
     function getContext(src) {
         return toContext(src);
     }
-    function readAppDirectory() {
+    function readAppDirectory(options = {}) {
         if (!portalUrl || !serviceAuth.configured())
             throw new PortalError("Portal directory isn't configured.");
-        return fetchAppDirectory(portal);
+        return fetchAppDirectory(portal, options);
     }
     return {
         signInWithPortalToken,
@@ -389,6 +408,7 @@ export function createPortalAuth(config) {
 // database. The synchronous SQLite connector above remains unchanged so
 // existing Mule apps do not need to migrate until they are ready.
 export function createPortalAuthAsync(config) {
+    const requestAuthority = usesRequestAuthority(config.authorityMode);
     const store = config.sessionStore;
     const appName = config.appName;
     const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
@@ -403,7 +423,7 @@ export function createPortalAuthAsync(config) {
     const requestTimeoutMs = config.portalRequestTimeoutMs ?? DEFAULT_PORTAL_TIMEOUT_MS;
     const allowOfflineAdmin = config.allowOfflineAdmin ?? false;
     const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs, appName);
-    const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth };
+    const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode: config.authorityMode };
     const ready = store.init();
     async function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "") {
         await ready;
@@ -538,7 +558,7 @@ export function createPortalAuthAsync(config) {
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
-        if (!context.active || (!context.is_admin && !context.apps.includes(appName)))
+        if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
         return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
     }
@@ -579,7 +599,8 @@ export function createPortalAuthAsync(config) {
             ctx = await fetchContext(portal, undefined, email);
         }
         catch (error) {
-            if (allowOfflineAdmin &&
+            if (!requestAuthority &&
+                allowOfflineAdmin &&
                 adminEmails.has(email) &&
                 error instanceof PortalError &&
                 error.unavailable) {
@@ -589,7 +610,7 @@ export function createPortalAuthAsync(config) {
         }
         if (!ctx)
             throw new PortalError("You don't have access to this app yet. Ask an admin in the Mule Portal.");
-        if (!ctx.is_admin && !ctx.apps.includes(appName))
+        if ((requestAuthority || !ctx.is_admin) && !ctx.apps.includes(appName))
             throw new PortalError("You haven't been given access to this app yet. Ask an admin in the Mule Portal.");
         return startLocalSession(ctx, GOOGLE_AUTHORITY_SOURCE);
     }
@@ -605,11 +626,12 @@ export function createPortalAuthAsync(config) {
         const row = await getRow(session.token);
         if (!row)
             return null;
-        if (hasCurrentAuthorityProvenance(row.source) &&
+        if (!requestAuthority &&
+            hasCurrentAuthorityProvenance(row.source) &&
             Date.now() - row.last_validated < revalidateMs)
             return rowToSession(row);
         if (!portalUrl || !serviceAuth.configured()) {
-            if (row.source === "dev")
+            if (!requestAuthority && row.source === "dev")
                 return rowToSession(row);
             throw new PortalError("Portal access verification isn't configured.");
         }
@@ -618,7 +640,8 @@ export function createPortalAuthAsync(config) {
             ctx = await fetchContext(portal, session.revalidationHandle, session.email);
         }
         catch (error) {
-            if (allowOfflineAdmin &&
+            if (!requestAuthority &&
+                allowOfflineAdmin &&
                 adminEmails.has(session.email) &&
                 hasCurrentAuthorityProvenance(row.source) &&
                 error instanceof PortalError &&
@@ -630,11 +653,16 @@ export function createPortalAuthAsync(config) {
             await destroy(session.token);
             return null;
         }
-        if (!ctx.is_admin && !ctx.apps.includes(appName)) {
+        if ((requestAuthority || !ctx.is_admin) && !ctx.apps.includes(appName)) {
             await destroy(session.token);
             return null;
         }
-        await saveContext(session.token, ctx);
+        if (requestAuthority) {
+            if (!await getRow(session.token))
+                return null;
+        }
+        else
+            await saveContext(session.token, ctx);
         return {
             token: session.token,
             email: ctx.email,
@@ -653,19 +681,23 @@ export function createPortalAuthAsync(config) {
         const row = await getRow(session.token);
         if (!row)
             return null;
-        if (hasCurrentAuthorityProvenance(row.source) &&
+        if (!requestAuthority &&
+            hasCurrentAuthorityProvenance(row.source) &&
             Date.now() - row.last_validated < revalidateMs)
             return rowToSession(row);
         if (!portalUrl || !serviceAuth.configured()) {
-            if (row.source === "dev")
+            if (!requestAuthority && row.source === "dev")
                 return rowToSession(row);
             throw new PortalError("Portal access verification isn't configured.");
         }
-        if (store.withRevalidationLock)
+        if (!requestAuthority && store.withRevalidationLock)
             return store.withRevalidationLock(session.token, () => revalidateUnderLock(session));
         return revalidateUnderLock(session);
     }
     function revalidateIfStale(session) {
+        // TTL zero still shares earlier in-flight work; request mode must never do so.
+        if (requestAuthority)
+            return revalidateOnce(session);
         const existing = inFlightRevalidations.get(session.token);
         if (existing)
             return existing;
@@ -732,10 +764,10 @@ export function createPortalAuthAsync(config) {
     function getContext(src) {
         return toContext(src);
     }
-    function readAppDirectory() {
+    function readAppDirectory(options = {}) {
         if (!portalUrl || !serviceAuth.configured())
             throw new PortalError("Portal directory isn't configured.");
-        return fetchAppDirectory(portal);
+        return fetchAppDirectory(portal, options);
     }
     return {
         signInWithPortalToken,

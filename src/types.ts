@@ -5,6 +5,33 @@ export interface PortalLocation {
   id: number;
   key: string;
   name: string;
+  is_mule?: boolean; // Required on current Portal payloads; optional for older callers.
+}
+
+export interface PortalDirectoryLocation extends PortalLocation {
+  is_mule: boolean;
+}
+
+export interface PortalDirectoryPerson {
+  email: string;
+  name: string;
+  role: string;
+  roles: string[];
+  status: "active" | "disabled";
+  locations: PortalDirectoryLocation[] | "all";
+  permissions: string[];
+  ctx_version: number;
+  last_login: string | null;
+}
+
+export interface PortalAppDirectory {
+  syncedAt: string;
+  locations: PortalDirectoryLocation[];
+  people: PortalDirectoryPerson[];
+}
+
+export interface PortalDirectoryOptions {
+  include_non_mule?: boolean;
 }
 
 // The identity "profile card" the Portal is the source of truth for. Every app
@@ -15,6 +42,10 @@ export interface Context {
   email: string;
   name: string;
   role: string; // ops | franchisee | gm | manager | chef
+  // Optional for source compatibility with older apps. Request authority mode
+  // requires these fields from Portal; cached mode normalizes absent legacy fields.
+  roles?: string[];
+  app_permissions?: Record<string, string[]>;
   is_admin: boolean; // role === 'ops'
   status: string; // active | disabled
   locations: PortalLocation[] | "all";
@@ -105,6 +136,10 @@ export interface PortalAuthConfig {
   // How often, at most, to re-check a live session against the Portal (§7 R1).
   // Default 5 minutes.
   revalidateMs?: number;
+  // "request" requires a new Portal lookup for every protected request, with
+  // complete roles/permissions and no cached, coalesced, offline or dev authority.
+  // "cached" preserves the existing revalidateMs behavior (default).
+  authorityMode?: "cached" | "request";
   // Maximum time to wait for one Portal request before denying the protected
   // request as temporarily unverifiable. Default 5 seconds.
   portalRequestTimeoutMs?: number;

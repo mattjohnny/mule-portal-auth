@@ -3,11 +3,36 @@ export interface PortalLocation {
     id: number;
     key: string;
     name: string;
+    is_mule?: boolean;
+}
+export interface PortalDirectoryLocation extends PortalLocation {
+    is_mule: boolean;
+}
+export interface PortalDirectoryPerson {
+    email: string;
+    name: string;
+    role: string;
+    roles: string[];
+    status: "active" | "disabled";
+    locations: PortalDirectoryLocation[] | "all";
+    permissions: string[];
+    ctx_version: number;
+    last_login: string | null;
+}
+export interface PortalAppDirectory {
+    syncedAt: string;
+    locations: PortalDirectoryLocation[];
+    people: PortalDirectoryPerson[];
+}
+export interface PortalDirectoryOptions {
+    include_non_mule?: boolean;
 }
 export interface Context {
     email: string;
     name: string;
     role: string;
+    roles?: string[];
+    app_permissions?: Record<string, string[]>;
     is_admin: boolean;
     status: string;
     locations: PortalLocation[] | "all";
@@ -53,6 +78,7 @@ export interface PortalAuthConfig {
     adminEmails?: string[];
     sessionTtlMs?: number;
     revalidateMs?: number;
+    authorityMode?: "cached" | "request";
     portalRequestTimeoutMs?: number;
     allowOfflineAdmin?: boolean;
 }
