@@ -232,7 +232,10 @@ for (const kind of ["sync", "async"]) {
       const { state, auth } = await fixture(t, kind, { authorityMode, revalidateMs: 0, ...(provider ? { credentialProvider: provider } : {}) });
       const session = await auth.signInWithPortalToken("synthetic-sso");
       const label = `${authorityMode} ${provider ? "handle" : "legacy"}`;
-      const result = await auth.revalidateIfStale({ ...session, email: "other@example.invalid", revalidationHandle: "forged-handle" });
+      // A refusal here means the forged caller fields were used for the lookup:
+      // report it as an assertion, not as an escaping PortalError.
+      const result = await auth.revalidateIfStale({ ...session, email: "other@example.invalid", revalidationHandle: "forged-handle" })
+        .catch((error) => assert.fail(`${label}: revalidation was refused: ${error?.name}: ${error?.message}`));
       assert.equal(result?.email, EMAIL, label);
       assert.equal(result.revalidationHandle, "synthetic-handle", label);
       assert.deepEqual(state.contextRequests.at(-1), provider ? { email: null, handle: "synthetic-handle" } : { email: EMAIL, handle: undefined }, label);
