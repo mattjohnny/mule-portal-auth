@@ -169,7 +169,8 @@ or revoked reply deletes the local session; an older active response cannot
 admit a session that has since disappeared. The context attached to the request
 is that request's authority result. `getContext(req)`, `locationIds(req)`, and
 `locationKeys(req)` read that result (`req.portal`) even when other middleware
-has set `req.context`. Calls that began before a Portal change are
+has set `req.context`. For a request that has not passed `requireAuth`, they
+return `null` or an empty list. Calls that began before a Portal change are
 not a substitute for a new authorization check after that change.
 
 Request mode draws on a Portal rate limit that other apps may share. The Portal's
@@ -179,11 +180,15 @@ requests per one-minute window. The limit is counted per source address, before
 authentication, in a PostgreSQL store that every Portal instance shares. Request
 mode makes one `POST /api/context` for every protected request, so the 61st
 protected request in a minute gets a Portal `429`, which the connector returns
-as a `503`. Cached mode makes at most one call per session per `revalidateMs`,
-and simultaneous requests in one process share that call. Render services in the same region
-share outbound address ranges, so sign-ins, re-checks, credential proofs, and
-directory reads from other apps may count against the same 60. Confirm this
-capacity before any request-mode pilot. The Portal-side finding is STAB-17 in
+as a `503`. In cached mode, simultaneous requests in one process share one call,
+and each session is re-checked at most once per `revalidateMs` while re-checks
+succeed. A failed re-check, including a `429`, does not advance the session's
+validation time, so each later request for that session calls the Portal again
+until one succeeds. In either mode, a `401` on one app credential makes the
+connector try the next, so one lookup can send more than one POST. Render
+services in the same region share outbound address ranges, so sign-ins,
+re-checks, credential proofs, and directory reads from other apps may count
+against the same 60. Confirm this capacity before any request-mode pilot. The Portal-side finding is STAB-17 in
 mattjohnny/mule-fleet-docs `audits/stability/portal-2026-10-25-608b090.md`.
 
 `Context.role`, `Session.role`, and `is_admin` retain their primary-role meaning.
@@ -220,15 +225,16 @@ Both factories expose the validated mode as read-only `auth.authorityMode`
 request authority, such as HR, should check at boot that it reads `"request"`
 and refuse to start if it does not. In request mode, `devSignIn` throws a
 `PortalError` and creates no session. A session created with a revalidation
-handle expires after `min(sessionTtlMs, 8 h)`, the Portal's handle lifetime. An
-expired handle's `401` looks the same as a bad app credential, so the session
-must not outlive its handle. Sessions without a handle keep `sessionTtlMs`
-(default 8 h). When a context lookup gets a `429` or `503` with a whole-seconds
-`Retry-After`, `requireAuth` and `requireAdmin` send it on their `503`, clamped
-to 1–300 seconds. Any other value, or none, gives 5. A `429` is still not an
-outage, and the connector never retries. A refused `readAppDirectory()` still
-fails as a whole. Its `PortalError.detail` names only the failed check and its
-position, such as `people[3].email` or `syncedAt skew`, so it is safe to log.
+handle expires after `min(sessionTtlMs, 8 h)`, the Portal's handle lifetime,
+counted from before the Portal redemption. An expired handle's `401` looks the
+same as a bad app credential, so the session must not outlive its handle.
+Sessions without a handle keep `sessionTtlMs` (default 8 h). When a context
+lookup gets a `429` or `503` with a whole-seconds `Retry-After`, `requireAuth`
+and `requireAdmin` send it on their `503`, clamped to 1–300 seconds. Any other
+value, or none, gives 5. A `429` is still not an outage, and the connector never
+retries. A refused `readAppDirectory()` still fails as a whole. Its
+`PortalError.detail` names only the failed check and its position, such as
+`people[3].email` or `syncedAt skew`, so it is safe to log.
 
 `readAppDirectory({ include_non_mule: true })` returns `PortalAppDirectory`:
 `syncedAt`, canonical `locations` (including required boolean `is_mule`), and
@@ -251,7 +257,7 @@ merged as `638bfeffb251831b2a5efad2be87e64880d27bf7`, and in production since
 2026-10-25. The
 [local verification summary](docs/evidence/authority-2026-10-25/README.md)
 names two Portal commits that were never published and a `dist/index.js`
-fingerprint that does not match the merged file. Its
+fingerprint that does not match the file merged at `ad09394`. Its
 [erratum](docs/evidence/authority-2026-10-25/ERRATUM-2026-10-26.md) gives the
 corrections and the re-verification on the merged bytes.
 Release tagging and consumer pins remain separate gates; the package version
