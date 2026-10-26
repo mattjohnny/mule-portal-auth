@@ -26,6 +26,18 @@ earlier in-flight lookup satisfies that guarantee. Request results are local to
 that request, never saved over later authority. Preserve cached-mode behavior
 for existing apps. Strict claims and directory validation must fail closed.
 
+`validRoles` accepts `finance` and `hr` (`ADDITIONAL_PORTAL_ROLES`) as
+additional roles, and a present unknown role fails validation in both modes.
+Before the Portal emits any other additional role, ship a connector release that
+names it and have every consumer adopt that release. Add each role by name;
+never make the check accept unknown roles.
+
+Request mode makes one Portal `POST /api/context` per protected request. Each
+call counts against the Portal's allowance of 60 a minute for that app, which is
+per authenticated app since mule-portal#122 (README, "Request authority").
+Never add retries, caching, or coalescing to request mode to stay under that
+limit. More capacity has to come from the Portal side.
+
 Run `test/authority-contract.test.js` against real localhost HTTP and Express,
 and `scripts/verify-authority-mutations.mjs` after building emitted artifacts.
 Do not run builds or integration tests concurrently with mutation scripts.

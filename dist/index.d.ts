@@ -1,6 +1,6 @@
 import type { Response, NextFunction } from "express";
-import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, PortalAppDirectory, PortalDirectoryOptions, Session } from "./types.js";
-export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalAppDirectory, PortalDirectoryOptions, PortalDirectoryLocation, PortalDirectoryPerson, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, } from "./types.js";
+import type { Context, AsyncPortalAuthConfig, PortalAuthConfig, PortalAuthedRequest, PortalAuthorityMode, PortalAppDirectory, PortalDirectoryOptions, Session } from "./types.js";
+export type { Context, AsyncPortalAuthConfig, PortalLocation, PortalAppDirectory, PortalDirectoryOptions, PortalDirectoryLocation, PortalDirectoryPerson, PortalSessionRow, PortalSessionStore, Session, PortalAuthConfig, PortalAuthedRequest, PortalAuthorityMode, } from "./types.js";
 export type { PortalCredentialProvider, PortalCredentialStage, PortalServiceCredential, } from "./types.js";
 export { PortalCredentialError, PortalError } from "./portal.js";
 export declare function sessionTokenDigest(token: string): string;
@@ -18,6 +18,7 @@ export declare function createPortalAuth(config: PortalAuthConfig): {
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
+    readonly authorityMode: PortalAuthorityMode;
     close: () => void;
     isAdminEmail: (email: string) => boolean;
 };
@@ -34,6 +35,7 @@ export declare function createPortalAuthAsync(config: AsyncPortalAuthConfig): {
     locationIds: (src: Session | Context | PortalAuthedRequest) => number[] | "all";
     locationKeys: (src: Session | Context | PortalAuthedRequest) => string[] | "all";
     isConfigured: () => boolean;
+    readonly authorityMode: PortalAuthorityMode;
     close: () => void;
     isAdminEmail: (email: string) => boolean;
 };

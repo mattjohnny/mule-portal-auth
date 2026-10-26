@@ -90,6 +90,10 @@ export interface PortalCredentialProvider {
   close?(): void;
 }
 
+// "request" requires a new Portal lookup for every protected request;
+// "cached" (the default) re-checks on the revalidateMs cadence.
+export type PortalAuthorityMode = "cached" | "request";
+
 // requireAuth attaches the resolved session (and its context) to the request.
 export interface PortalAuthedRequest extends Request {
   portal?: Session;
@@ -139,7 +143,7 @@ export interface PortalAuthConfig {
   // "request" requires a new Portal lookup for every protected request, with
   // complete roles/permissions and no cached, coalesced, offline or dev authority.
   // "cached" preserves the existing revalidateMs behavior (default).
-  authorityMode?: "cached" | "request";
+  authorityMode?: PortalAuthorityMode;
   // Maximum time to wait for one Portal request before denying the protected
   // request as temporarily unverifiable. Default 5 seconds.
   portalRequestTimeoutMs?: number;

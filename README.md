@@ -167,21 +167,92 @@ refuses offline/dev fallback, and never persists refreshed context snapshots.
 This prevents a late response from overwriting newer access state. An inactive
 or revoked reply deletes the local session; an older active response cannot
 admit a session that has since disappeared. The context attached to the request
-is that request's authority result. Calls that began before a Portal change are
+is that request's authority result. `getContext(req)`, `locationIds(req)`, and
+`locationKeys(req)` read that result (`req.portal`) even when other middleware
+has set `req.context`. For a request that has not passed `requireAuth`, they
+return `null` or an empty list. Calls that began before a Portal change are
 not a substitute for a new authorization check after that change.
+
+Request mode draws on the Portal's per-app rate limit. Since mule-portal#122
+(`bc353a7`, in production), each authenticated app has its own allowance of 60
+requests per one-minute window on the Portal's app-to-app routes
+(`POST /api/redeem-sso`, `POST /api/context`, `POST /api/credential-proof`, and
+`GET /api/app-directory`), from any address. The count is kept in a PostgreSQL
+store that every Portal instance shares. A separate limit of 60 a minute per
+source address runs before authentication. It counts only requests whose app
+credential does not authenticate, so other apps behind the same Render egress
+address no longer spend this app's allowance. An authenticated call still holds
+its address slot until it completes, so 60 or more calls in flight at once from
+one address can be refused.
+
+Request mode makes one `POST /api/context` for every protected request, and the
+same app's sign-ins, credential proofs, and directory reads count against the
+same 60. A request-mode app therefore gets at most 60 Portal calls a minute
+across all its users. The next call gets a Portal `429` with a `Retry-After`,
+which the connector passes on in its `503`. In cached mode, simultaneous
+requests in one process share one call, and each session is re-checked at most
+once per `revalidateMs` while re-checks succeed. A failed re-check, including a
+`429`, does not advance the session's validation time, so each later request for
+that session calls the Portal again until one succeeds. In either mode, a `401`
+on one app credential makes the connector try the next, so one lookup can send
+more than one POST. The refused attempt counts against the address limit.
+Before any request-mode pilot, confirm that the app's peak rate of Portal calls
+fits within 60 a minute, or get a Portal change that raises its allowance. The
+Portal-side finding is STAB-17 in mattjohnny/mule-fleet-docs
+`audits/stability/portal-2026-10-25-608b090.md`. The fleet audit record
+(`audits/apps/portal.json`) still lists it as open while its closeout is in
+progress.
 
 `Context.role`, `Session.role`, and `is_admin` retain their primary-role meaning.
 `roles` includes that primary role first, then any of the additional roles
-`finance` and `hr`, each at most once; any other value fails validation. Every
-deployed connector that validates `roles` must accept a new additional role
-before the Portal assigns it;
+`finance` and `hr`, each at most once; any other value fails validation.
 `app_permissions` is a sparse map of app keys to permission lists. A missing app
 key or empty list grants no permission. Apps apply their domain policy using
 these facts and exact canonical locations. The connector adds no HR policy.
+
+This validation applies in cached mode as well as request mode. An additional
+role other than `finance` or `hr` makes that person's context or directory entry
+malformed. Their sign-in fails. Once their session is due for a re-check, every
+protected request they make is refused. Any directory read that includes them
+fails as a whole. Every deployed connector that validates `roles` must accept a
+new additional role before the Portal assigns it. So for any role beyond
+`finance` and `hr`, release a connector that accepts it, and have every
+consuming app adopt that release, before the Portal starts emitting it. The
+Portal stores only `finance` today: migration 8 in mule-portal `src/database.ts`
+allows no other value, and `ADDITIONAL_ROLES` in `src/identity.ts` is
+`["finance"]`. The connector accepts `hr` ahead of the Portal. Connectors
+released before PR #10 do not validate `roles` at all.
+
 The new fields are optional in the TypeScript interface so older scalar
-consumers still compile. In cached mode only, absent legacy fields normalize to
-`[role]` and `{}`; present malformed claims always fail validation. Default
-cached-mode timing, coalescing, and explicit outage behavior remain unchanged.
+consumers still compile. In cached mode only, a live Portal response that lacks
+them is normalized to `roles: [role]` and `app_permissions: {}`. Present
+malformed claims always fail validation. That normalization applies only to a
+response the connector has just validated. A context read back from the session
+store is not normalized. Sessions from `devSignIn` and offline-admin sign-in
+start without these fields. A session stored by v0.2.4 or earlier may also lack
+them. Each of these sessions gets the fields at its next successful re-check. A
+dev session with no Portal configured is never re-checked, so it never gets
+them. In cached mode, read an absent `roles` as `[role]` and an absent
+`app_permissions` as granting nothing. Default cached-mode timing,
+coalescing, and explicit outage behavior remain unchanged.
+
+#### Boot checks, dev sign-in, expiry, back-off and directory errors
+
+Both factories expose the validated mode as read-only `auth.authorityMode`
+(`"cached"` or `"request"`, type `PortalAuthorityMode`). An app that depends on
+request authority, such as HR, should check at boot that it reads `"request"`
+and refuse to start if it does not. In request mode, `devSignIn` throws a
+`PortalError` and creates no session. A session created with a revalidation
+handle expires after `min(sessionTtlMs, 8 h)`, the Portal's handle lifetime,
+counted from before the Portal redemption. An expired handle's `401` looks the
+same as a bad app credential, so the session must not outlive its handle.
+Sessions without a handle keep `sessionTtlMs` (default 8 h). When a context
+lookup gets a `429` or `503` with a whole-seconds `Retry-After`, `requireAuth`
+and `requireAdmin` send it on their `503`, clamped to 1–300 seconds. Any other
+value, or none, gives 5. A `429` is still not an outage, and the connector never
+retries. A refused `readAppDirectory()` still fails as a whole. Its
+`PortalError.detail` names only the failed check and its position, such as
+`people[3].email` or `syncedAt skew`, so it is safe to log.
 
 `readAppDirectory({ include_non_mule: true })` returns `PortalAppDirectory`:
 `syncedAt`, canonical `locations` (including required boolean `is_mule`), and
@@ -199,12 +270,19 @@ again before a later eligibility decision. `getContext` reads an already
 resolved snapshot and does not itself revalidate.
 
 This change requires the matching Portal roles/permissions and directory
-contract for Portal issues #92 and #93. The publication counterpart is
-`f593c2bc4b4cd57edfb4bf52f4759ff0481f9799`; the
+contract for Portal issues #92 and #93. That Portal change is
+mattjohnny/mule-portal#112: head `856fd566b8f2d9e8fd7645849b39169752d5f1f0`,
+merged as `638bfeffb251831b2a5efad2be87e64880d27bf7`, and in production since
+2026-10-25. The
 [local verification summary](docs/evidence/authority-2026-10-25/README.md)
-identifies the original verified counterpart and evidence scope.
+names two Portal commits that were never published and a `dist/index.js`
+fingerprint that does not match the file merged at `ad09394`. Its
+[erratum](docs/evidence/authority-2026-10-25/ERRATUM-2026-10-26.md) gives the
+corrections and the re-verification on the merged bytes.
 Release tagging and consumer pins remain separate gates; the package version
-is still `0.2.4`.
+is still `0.2.4`. Follow
+[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md) before
+tagging.
 
 An async store shared by multiple service instances can additionally implement:
 
