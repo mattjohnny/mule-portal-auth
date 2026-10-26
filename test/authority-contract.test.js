@@ -372,12 +372,14 @@ for (const kind of ["sync", "async"]) {
     const { state, build } = await handleFixture(t, kind);
     const { auth } = await build();
     const at = (offsetMs) => () => directory({ syncedAt: new Date(Date.now() + offsetMs).toISOString() });
-    for (const offsetMs of [-20_000, 20_000]) {
+    // One second either side of the 30-second window: a bound moved by more
+    // than that in either direction fails one of these four reads.
+    for (const offsetMs of [-29_000, 29_000]) {
       state.directory = at(offsetMs);
       const value = await accepted(() => auth.readAppDirectory(), `syncedAt ${offsetMs} ms`);
       assert.deepEqual(value.locations, [location], `syncedAt ${offsetMs} ms`);
     }
-    for (const offsetMs of [-45_000, 45_000]) {
+    for (const offsetMs of [-31_000, 31_000]) {
       state.directory = at(offsetMs);
       await assert.rejects(() => auth.readAppDirectory(), /invalid directory/, `syncedAt ${offsetMs} ms`);
     }

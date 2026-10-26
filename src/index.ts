@@ -197,10 +197,11 @@ export function createPortalAuth(config: PortalAuthConfig) {
       | typeof GOOGLE_AUTHORITY_SOURCE
       | "offline-admin"
       | "dev" = PORTAL_AUTHORITY_SOURCE,
-    revalidationHandle = ""
+    revalidationHandle = "",
+    startedAt?: number
   ): Session {
     const token = crypto.randomBytes(32).toString("hex");
-    const now = Date.now();
+    const now = startedAt ?? Date.now();
     db.prepare(
       `INSERT INTO portal_sessions
        (token, email, name, context, created_at, expires_at, last_validated, source, revalidation_handle)
@@ -317,10 +318,13 @@ export function createPortalAuth(config: PortalAuthConfig) {
     if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
+    // The Portal stamps its handle's expiry while redeeming, so measure this
+    // session from before that request: it can then never outlive the handle.
+    const startedAt = Date.now();
     const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
       throw new PortalError("You no longer have access to this app.", true);
-    return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
+    return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle, startedAt);
   }
 
   // Legacy direct-door sign-in for deployments that have not yet configured an
@@ -613,11 +617,12 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       | typeof GOOGLE_AUTHORITY_SOURCE
       | "offline-admin"
       | "dev" = PORTAL_AUTHORITY_SOURCE,
-    revalidationHandle = ""
+    revalidationHandle = "",
+    startedAt?: number
   ): Promise<Session> {
     await ready;
     const token = crypto.randomBytes(32).toString("hex");
-    const now = Date.now();
+    const now = startedAt ?? Date.now();
     // Hash at the store boundary: the row's token column holds only the digest,
     // never the raw browser bearer. The Session below still returns the RAW
     // token — that is the cookie the browser sends back, and it hashes to the
@@ -753,10 +758,13 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
+    // The Portal stamps its handle's expiry while redeeming, so measure this
+    // session from before that request: it can then never outlive the handle.
+    const startedAt = Date.now();
     const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
       throw new PortalError("You no longer have access to this app.", true);
-    return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
+    return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle, startedAt);
   }
 
   async function signInWithGoogle(idToken: string): Promise<Session> {
@@ -1037,6 +1045,8 @@ function toContext(src: Session | Context | PortalAuthedRequest | null | undefin
   // set on the request (req.context) must never stand in for it.
   if ("portal" in src && (src as PortalAuthedRequest).portal)
     return (src as PortalAuthedRequest).portal!.context; // request
+  // Any other request (requireAuth did not admit it) has no authority at all.
+  if ("headers" in src) return null;
   if ("context" in src && src.context) return src.context as Context; // Session
   if ("role" in src && "is_admin" in src) return src as Context; // already a Context
   return null;

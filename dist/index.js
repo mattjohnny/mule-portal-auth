@@ -112,9 +112,9 @@ export function createPortalAuth(config) {
             update.run(sessionTokenDigest(row.token), row.token);
     })();
     // --- Local session store --------------------------------------------------
-    function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "") {
+    function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "", startedAt) {
         const token = crypto.randomBytes(32).toString("hex");
-        const now = Date.now();
+        const now = startedAt ?? Date.now();
         db.prepare(`INSERT INTO portal_sessions
        (token, email, name, context, created_at, expires_at, last_validated, source, revalidation_handle)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(sessionTokenDigest(token), ctx.email, ctx.name, JSON.stringify(ctx), now, sessionExpiresAt(now, sessionTtlMs, revalidationHandle), now, source, revalidationHandle);
@@ -188,10 +188,13 @@ export function createPortalAuth(config) {
             throw new PortalError("Portal sign-in isn't configured.");
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
+        // The Portal stamps its handle's expiry while redeeming, so measure this
+        // session from before that request: it can then never outlive the handle.
+        const startedAt = Date.now();
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
         if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
-        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
+        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle, startedAt);
     }
     // Legacy direct-door sign-in for deployments that have not yet configured an
     // app-bound credential. The legacy context-by-email endpoint cannot issue the
@@ -454,10 +457,10 @@ export function createPortalAuthAsync(config) {
     const serviceAuth = new PortalServiceAuth(credentialProvider, sharedKey, portalUrl, credentialRefreshMs, appName);
     const portal = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode };
     const ready = store.init();
-    async function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "") {
+    async function startLocalSession(ctx, source = PORTAL_AUTHORITY_SOURCE, revalidationHandle = "", startedAt) {
         await ready;
         const token = crypto.randomBytes(32).toString("hex");
-        const now = Date.now();
+        const now = startedAt ?? Date.now();
         // Hash at the store boundary: the row's token column holds only the digest,
         // never the raw browser bearer. The Session below still returns the RAW
         // token — that is the cookie the browser sends back, and it hashes to the
@@ -586,10 +589,13 @@ export function createPortalAuthAsync(config) {
             throw new PortalError("Portal sign-in isn't configured.");
         if (!ssoToken)
             throw new PortalError("Missing sign-in token.");
+        // The Portal stamps its handle's expiry while redeeming, so measure this
+        // session from before that request: it can then never outlive the handle.
+        const startedAt = Date.now();
         const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
         if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
             throw new PortalError("You no longer have access to this app.", true);
-        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle);
+        return startLocalSession(context, PORTAL_AUTHORITY_SOURCE, revalidationHandle, startedAt);
     }
     async function signInWithGoogle(idToken) {
         if (!googleClientId)
@@ -859,6 +865,9 @@ function toContext(src) {
     // set on the request (req.context) must never stand in for it.
     if ("portal" in src && src.portal)
         return src.portal.context; // request
+    // Any other request (requireAuth did not admit it) has no authority at all.
+    if ("headers" in src)
+        return null;
     if ("context" in src && src.context)
         return src.context; // Session
     if ("role" in src && "is_admin" in src)
