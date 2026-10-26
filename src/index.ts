@@ -5,6 +5,7 @@ import type {
   AsyncPortalAuthConfig,
   PortalAuthConfig,
   PortalAuthedRequest,
+  PortalAuthorityMode,
   PortalLocation,
   PortalAppDirectory,
   PortalDirectoryOptions,
@@ -12,6 +13,8 @@ import type {
   Session,
 } from "./types.js";
 import {
+  MAX_RETRY_AFTER_SECONDS,
+  MIN_RETRY_AFTER_SECONDS,
   PortalError,
   PortalServiceAuth,
   fetchAppDirectory,
@@ -35,6 +38,7 @@ export type {
   Session,
   PortalAuthConfig,
   PortalAuthedRequest,
+  PortalAuthorityMode,
 } from "./types.js";
 export type {
   PortalCredentialProvider,
@@ -53,13 +57,34 @@ export {
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // 8h fallback session TTL (§7)
 const DEFAULT_REVALIDATE_MS = 5 * 60 * 1000; // re-check the Portal at most every 5 min (§7 R1)
 const DEFAULT_PORTAL_TIMEOUT_MS = 5_000;
+// The Portal's revalidation handles live 8 hours: HANDLE_TTL_MS in mule-portal
+// src/service-auth.ts. An expired handle gets a 401 that is indistinguishable by
+// status from a bad app credential, so the connector cannot safely sign anyone
+// out on it. Instead a session created with a handle never outlives the handle.
+const PORTAL_HANDLE_TTL_MS = 8 * 60 * 60 * 1000;
+// requireAuth's 503 when the Portal named no usable Retry-After of its own.
+const DEFAULT_RETRY_AFTER_SECONDS = 5;
 const PORTAL_AUTHORITY_SOURCE = "portal-v2";
 const GOOGLE_AUTHORITY_SOURCE = "google-v2";
 
-function usesRequestAuthority(mode: PortalAuthConfig["authorityMode"]): boolean {
+function resolveAuthorityMode(mode: PortalAuthConfig["authorityMode"]): PortalAuthorityMode {
   if (mode !== undefined && mode !== "cached" && mode !== "request")
     throw new PortalError("Invalid Portal authorityMode configuration.");
-  return mode === "request";
+  return mode ?? "cached";
+}
+
+function sessionExpiresAt(now: number, sessionTtlMs: number, revalidationHandle: string): number {
+  return now + (revalidationHandle ? Math.min(sessionTtlMs, PORTAL_HANDLE_TTL_MS) : sessionTtlMs);
+}
+
+// The Portal's own clamped back-off when its context lookup carried one;
+// otherwise the fixed answer every other denial has always given.
+function retryAfterSeconds(error: unknown): number {
+  const value = error instanceof PortalError ? error.retryAfterSeconds : undefined;
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+    value >= MIN_RETRY_AFTER_SECONDS && value <= MAX_RETRY_AFTER_SECONDS
+    ? value
+    : DEFAULT_RETRY_AFTER_SECONDS;
 }
 
 // requireAuth answers one 503 for every reason revalidation can fail, and the
@@ -99,7 +124,8 @@ function hasCurrentAuthorityProvenance(source: string): boolean {
 // Mule app shares (identity-and-access.md §8). Retire the app's copied auth.ts
 // role/location logic and read from the context this exposes instead.
 export function createPortalAuth(config: PortalAuthConfig) {
-  const requestAuthority = usesRequestAuthority(config.authorityMode);
+  const authorityMode = resolveAuthorityMode(config.authorityMode);
+  const requestAuthority = authorityMode === "request";
   const db = config.db;
   const appName = config.appName;
   const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
@@ -130,7 +156,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
     credentialRefreshMs,
     appName
   );
-  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode: config.authorityMode };
+  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode };
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS portal_sessions (
@@ -185,7 +211,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
       ctx.name,
       JSON.stringify(ctx),
       now,
-      now + sessionTtlMs,
+      sessionExpiresAt(now, sessionTtlMs, revalidationHandle),
       now,
       source,
       revalidationHandle
@@ -362,6 +388,9 @@ export function createPortalAuth(config: PortalAuthConfig) {
   // Starts a local admin (ops) session. Callers MUST gate this on an explicit
   // non-production check as well as !isConfigured() so it is dead in production.
   function devSignIn(email: string, name = "Dev Admin"): Session {
+    // A dev session is a local ops grant; request authority admits only Portal answers.
+    if (requestAuthority)
+      throw new PortalError("Development sign-in is not available in request authority mode.");
     return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name), "dev");
   }
 
@@ -391,14 +420,15 @@ export function createPortalAuth(config: PortalAuthConfig) {
       throw new PortalError("Portal access verification isn't configured.");
     }
 
+    // The stored row, not the caller's Session object, names who is looked up.
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, session.revalidationHandle, session.email);
+      ctx = await fetchContext(portal, row.revalidation_handle || undefined, row.email);
     } catch (error) {
       if (
         !requestAuthority &&
         allowOfflineAdmin &&
-        adminEmails.has(session.email) &&
+        adminEmails.has(row.email) &&
         hasCurrentAuthorityProvenance(row.source) &&
         error instanceof PortalError &&
         error.unavailable
@@ -425,7 +455,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
       name: ctx.name,
       role: ctx.role,
       context: ctx,
-      revalidationHandle: session.revalidationHandle,
+      revalidationHandle: row.revalidation_handle || undefined,
     };
   }
 
@@ -464,7 +494,7 @@ export function createPortalAuth(config: PortalAuthConfig) {
       .catch((error: unknown) => {
         logRevalidationDenial(error);
         res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Retry-After", "5");
+        res.setHeader("Retry-After", String(retryAfterSeconds(error)));
         res.status(503).json({
           error: "We can't confirm your access with the Mule Portal right now. Please try again.",
         });
@@ -524,6 +554,10 @@ export function createPortalAuth(config: PortalAuthConfig) {
     locationIds,
     locationKeys,
     isConfigured: () => !!portalUrl && serviceAuth.configured(),
+    // The validated mode, so an app can assert it at boot. Read-only.
+    get authorityMode(): PortalAuthorityMode {
+      return authorityMode;
+    },
     close: () => {
       clearInterval(sweepTimer);
       serviceAuth.close();
@@ -537,7 +571,8 @@ export function createPortalAuth(config: PortalAuthConfig) {
 // database. The synchronous SQLite connector above remains unchanged so
 // existing Mule apps do not need to migrate until they are ready.
 export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
-  const requestAuthority = usesRequestAuthority(config.authorityMode);
+  const authorityMode = resolveAuthorityMode(config.authorityMode);
+  const requestAuthority = authorityMode === "request";
   const store = config.sessionStore;
   const appName = config.appName;
   const portalUrl = (config.portalUrl ?? process.env.PORTAL_URL ?? "").trim().replace(/\/$/, "");
@@ -568,7 +603,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     credentialRefreshMs,
     appName
   );
-  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode: config.authorityMode };
+  const portal: PortalClientOpts = { portalUrl, appName, requestTimeoutMs, serviceAuth, authorityMode };
   const ready = store.init();
 
   async function startLocalSession(
@@ -593,7 +628,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       name: ctx.name,
       context: JSON.stringify(ctx),
       created_at: now,
-      expires_at: now + sessionTtlMs,
+      expires_at: sessionExpiresAt(now, sessionTtlMs, revalidationHandle),
       last_validated: now,
       source,
       revalidation_handle: revalidationHandle,
@@ -781,6 +816,8 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
   }
 
   async function devSignIn(email: string, name = "Dev Admin"): Promise<Session> {
+    if (requestAuthority)
+      throw new PortalError("Development sign-in is not available in request authority mode.");
     return startLocalSession(bootstrapAdminContext(email.toLowerCase(), name), "dev");
   }
 
@@ -800,14 +837,15 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       throw new PortalError("Portal access verification isn't configured.");
     }
 
+    // The stored row, not the caller's Session object, names who is looked up.
     let ctx: Context | null;
     try {
-      ctx = await fetchContext(portal, session.revalidationHandle, session.email);
+      ctx = await fetchContext(portal, row.revalidation_handle || undefined, row.email);
     } catch (error) {
       if (
         !requestAuthority &&
         allowOfflineAdmin &&
-        adminEmails.has(session.email) &&
+        adminEmails.has(row.email) &&
         hasCurrentAuthorityProvenance(row.source) &&
         error instanceof PortalError &&
         error.unavailable
@@ -832,7 +870,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       name: ctx.name,
       role: ctx.role,
       context: ctx,
-      revalidationHandle: session.revalidationHandle,
+      revalidationHandle: row.revalidation_handle || undefined,
     };
   }
 
@@ -894,7 +932,7 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
       } catch (error) {
         logRevalidationDenial(error);
         res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Retry-After", "5");
+        res.setHeader("Retry-After", String(retryAfterSeconds(error)));
         res.status(503).json({
           error: "We can't confirm your access with the Mule Portal right now. Please try again.",
         });
@@ -949,6 +987,10 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     locationIds,
     locationKeys,
     isConfigured: () => !!portalUrl && serviceAuth.configured(),
+    // The validated mode, so an app can assert it at boot. Read-only.
+    get authorityMode(): PortalAuthorityMode {
+      return authorityMode;
+    },
     close: () => {
       clearInterval(sweepTimer);
       serviceAuth.close();
@@ -991,9 +1033,11 @@ function bootstrapAdminContext(email: string, name: string): Context {
 
 function toContext(src: Session | Context | PortalAuthedRequest | null | undefined): Context | null {
   if (!src) return null;
-  if ("context" in src && src.context) return src.context as Context; // Session
+  // A request's own authority result first: a property some other middleware
+  // set on the request (req.context) must never stand in for it.
   if ("portal" in src && (src as PortalAuthedRequest).portal)
     return (src as PortalAuthedRequest).portal!.context; // request
+  if ("context" in src && src.context) return src.context as Context; // Session
   if ("role" in src && "is_admin" in src) return src as Context; // already a Context
   return null;
 }

@@ -61,6 +61,7 @@ export interface PortalCredentialProvider {
     getCredentials(forceRefresh?: boolean, signal?: AbortSignal): Promise<PortalServiceCredential[]>;
     close?(): void;
 }
+export type PortalAuthorityMode = "cached" | "request";
 export interface PortalAuthedRequest extends Request {
     portal?: Session;
 }
@@ -78,7 +79,7 @@ export interface PortalAuthConfig {
     adminEmails?: string[];
     sessionTtlMs?: number;
     revalidateMs?: number;
-    authorityMode?: "cached" | "request";
+    authorityMode?: PortalAuthorityMode;
     portalRequestTimeoutMs?: number;
     allowOfflineAdmin?: boolean;
 }

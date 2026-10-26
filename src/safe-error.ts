@@ -15,6 +15,8 @@ const SAFE_ERROR_NAMES = new Set([
   "InvalidParameterException",
   "InvalidRequestException",
   "NetworkingError",
+  "PortalCredentialError",
+  "PortalError",
   "RequestTimeout",
   "ResourceNotFoundException",
   "ServiceUnavailableException",

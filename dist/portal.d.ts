@@ -1,8 +1,13 @@
-import type { Context, PortalAppDirectory, PortalDirectoryOptions, PortalCredentialProvider } from "./types.js";
+import type { Context, PortalAuthorityMode, PortalAppDirectory, PortalDirectoryOptions, PortalCredentialProvider } from "./types.js";
 export declare class PortalError extends Error {
     signedOut: boolean;
     unavailable: boolean;
-    constructor(message: string, signedOut?: boolean, unavailable?: boolean);
+    retryAfterSeconds?: number;
+    detail?: string;
+    constructor(message: string, signedOut?: boolean, unavailable?: boolean, extra?: {
+        retryAfterSeconds?: number;
+        detail?: string;
+    });
 }
 export declare class PortalCredentialError extends PortalError {
     constructor(message?: string);
@@ -12,7 +17,7 @@ export interface PortalClientOpts {
     appName: string;
     requestTimeoutMs: number;
     serviceAuth: PortalServiceAuth;
-    authorityMode?: "cached" | "request";
+    authorityMode?: PortalAuthorityMode;
 }
 export declare class PortalServiceAuth {
     private readonly provider;
@@ -34,6 +39,8 @@ export declare class PortalServiceAuth {
     private withLegacy;
     private proveCredentials;
 }
+export declare const MIN_RETRY_AFTER_SECONDS = 1;
+export declare const MAX_RETRY_AFTER_SECONDS = 300;
 export declare function redeemSso(opts: PortalClientOpts, ssoToken: string): Promise<{
     email: string;
     name: string;

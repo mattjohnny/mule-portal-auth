@@ -1,5 +1,6 @@
 import type {
   Context,
+  PortalAuthorityMode,
   PortalAppDirectory,
   PortalDirectoryOptions,
   PortalCredentialProvider,
@@ -17,11 +18,25 @@ export class PortalError extends Error {
   // out rather than showing a generic error.
   signedOut: boolean;
   unavailable: boolean;
-  constructor(message: string, signedOut = false, unavailable = false) {
+  // Whole seconds the Portal asked callers to wait: its delta-seconds
+  // `Retry-After` on a 429/503 context lookup, clamped to 1..300. Absent when
+  // the Portal sent none (or an HTTP-date / malformed value).
+  declare retryAfterSeconds?: number;
+  // Which check rejected a Portal response, by field and position only (for
+  // example "people[3].email"). Never carries a value from the response.
+  declare detail?: string;
+  constructor(
+    message: string,
+    signedOut = false,
+    unavailable = false,
+    extra: { retryAfterSeconds?: number; detail?: string } = {}
+  ) {
     super(message);
     this.name = "PortalError";
     this.signedOut = signedOut;
     this.unavailable = unavailable;
+    if (extra.retryAfterSeconds !== undefined) this.retryAfterSeconds = extra.retryAfterSeconds;
+    if (extra.detail !== undefined) this.detail = extra.detail;
   }
 }
 
@@ -40,7 +55,7 @@ export interface PortalClientOpts {
   appName: string;
   requestTimeoutMs: number;
   serviceAuth: PortalServiceAuth;
-  authorityMode?: "cached" | "request";
+  authorityMode?: PortalAuthorityMode;
 }
 
 export class PortalServiceAuth {
@@ -356,6 +371,21 @@ function unavailableForStatus(status: number): boolean {
   return RETRYABLE_PORTAL_STATUSES.has(status);
 }
 
+// Pass the Portal's own back-off through to the person's browser instead of the
+// connector's fixed answer. Only delta-seconds is honoured, and it is clamped so
+// a misbehaving reply can neither demand an instant retry storm nor park clients
+// for hours. This never changes which statuses count as an outage (429 still
+// does not) and never causes the connector itself to retry.
+export const MIN_RETRY_AFTER_SECONDS = 1;
+export const MAX_RETRY_AFTER_SECONDS = 300;
+
+function portalRetryAfterSeconds(response: Response): number | undefined {
+  if (response.status !== 429 && response.status !== 503) return undefined;
+  const value = response.headers.get("retry-after")?.trim();
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  return Math.min(MAX_RETRY_AFTER_SECONDS, Math.max(MIN_RETRY_AFTER_SECONDS, Number(value)));
+}
+
 const PORTAL_ROLES = new Set(["ops", "franchisee", "gm", "manager", "chef"]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -377,14 +407,31 @@ function validRoles(value: unknown, primary: unknown): boolean {
 }
 
 function validLocations(value: unknown, requireCanonical: boolean): boolean {
-  if (value === "all") return true;
-  return Array.isArray(value) && value.every((location) =>
-    isObject(location) && Number.isSafeInteger(location.id) && Number(location.id) > 0 &&
-    typeof location.key === "string" && !!location.key && location.key.trim() === location.key &&
-    typeof location.name === "string" && !!location.name &&
-    (typeof location.is_mule === "boolean" || (!requireCanonical && location.is_mule === undefined))
-  ) && new Set(value.map((location) => location.id)).size === value.length &&
-    new Set(value.map((location) => location.key)).size === value.length;
+  return locationsProblem(value, requireCanonical) === null;
+}
+
+// null when the location set is valid; otherwise the failed check as a
+// position suffix ("" for a non-array, "[2].key duplicate", ...). Names fields
+// and indexes only, never a value, so it is safe to surface as error detail.
+function locationsProblem(value: unknown, requireCanonical: boolean): string | null {
+  if (value === "all") return null;
+  if (!Array.isArray(value)) return "";
+  const ids = new Set<unknown>();
+  const keys = new Set<unknown>();
+  for (const [index, location] of value.entries()) {
+    if (!isObject(location)) return `[${index}]`;
+    if (!Number.isSafeInteger(location.id) || Number(location.id) <= 0) return `[${index}].id`;
+    if (typeof location.key !== "string" || !location.key || location.key.trim() !== location.key)
+      return `[${index}].key`;
+    if (typeof location.name !== "string" || !location.name) return `[${index}].name`;
+    if (!(typeof location.is_mule === "boolean" || (!requireCanonical && location.is_mule === undefined)))
+      return `[${index}].is_mule`;
+    if (ids.has(location.id)) return `[${index}].id duplicate`;
+    if (keys.has(location.key)) return `[${index}].key duplicate`;
+    ids.add(location.id);
+    keys.add(location.key);
+  }
+  return null;
 }
 
 function validateActiveContext(value: unknown, expectedEmail: string, strict = false): Context {
@@ -546,13 +593,16 @@ export async function fetchContext(
     }
     if (!resp.ok) {
       const unavailable = unavailableForStatus(resp.status);
+      // Read the header before the body is released.
+      const retryAfterSeconds = portalRetryAfterSeconds(resp);
       await discardResponse(resp);
       throw new PortalError(
         unavailable
           ? "The Portal is temporarily unavailable."
           : "Portal rejected the context request.",
         false,
-        unavailable
+        unavailable,
+        { retryAfterSeconds }
       );
     }
     let body: unknown;
@@ -572,35 +622,58 @@ export async function fetchContext(
   }
 }
 
+// The whole directory is refused on any failed check (fail closed; no row is
+// skipped). The thrown error's `detail` names that check by field and position,
+// for example "people[3].email" or "locations[2].key duplicate", and never
+// carries a value from the response.
 function validateDirectory(value: unknown, options: PortalDirectoryOptions, startedAt: number): PortalAppDirectory {
-  const invalid = () => new PortalError("The Portal returned an invalid directory response.");
-  if (!isObject(value) || typeof value.syncedAt !== "string" ||
-    !Array.isArray(value.locations) || !validLocations(value.locations, true) ||
-    !Array.isArray(value.people)) throw invalid();
+  const invalid = (detail: string) =>
+    new PortalError("The Portal returned an invalid directory response.", false, false, { detail });
+  if (!isObject(value)) throw invalid("body");
+  if (typeof value.syncedAt !== "string") throw invalid("syncedAt");
+  if (!Array.isArray(value.locations)) throw invalid("locations");
+  const locationsDetail = locationsProblem(value.locations, true);
+  if (locationsDetail !== null) throw invalid(`locations${locationsDetail}`);
+  if (!Array.isArray(value.people)) throw invalid("people");
   // Every call is a new read; the timestamp also rejects stale intermediary
   // responses. Permit 30 seconds of server clock skew, never a cached lease.
   const syncedAt = Date.parse(value.syncedAt);
   const receivedAt = Date.now();
-  if (!Number.isFinite(syncedAt) || syncedAt < startedAt - 30_000 || Math.abs(receivedAt - syncedAt) > 30_000)
-    throw invalid();
+  if (!Number.isFinite(syncedAt)) throw invalid("syncedAt");
+  if (syncedAt < startedAt - 30_000 || Math.abs(receivedAt - syncedAt) > 30_000)
+    throw invalid("syncedAt skew");
   const directory = value as unknown as PortalAppDirectory;
-  if (!options.include_non_mule && directory.locations.some((location) => !location.is_mule))
-    throw invalid();
+  if (!options.include_non_mule) {
+    const nonMule = directory.locations.findIndex((location) => !location.is_mule);
+    if (nonMule !== -1) throw invalid(`locations[${nonMule}].is_mule non-Mule`);
+  }
   const locationsById = new Map(directory.locations.map((location) => [location.id, location]));
   const emails = new Set<string>();
-  for (const person of directory.people) {
-    if (!isObject(person) || !validEmail(person.email) || emails.has(person.email.toLowerCase()) ||
-      typeof person.name !== "string" || !validRoles(person.roles, person.role) ||
-      !["active", "disabled"].includes(person.status) || !stringSet(person.permissions) ||
-      !Number.isSafeInteger(person.ctx_version) || person.ctx_version < 1 ||
-      !(person.last_login === null || (typeof person.last_login === "string" && Number.isFinite(Date.parse(person.last_login)))) ||
-      !validLocations(person.locations, true) ||
-      (person.role === "ops" ? person.locations !== "all" : person.locations === "all")) throw invalid();
+  for (const [index, person] of directory.people.entries()) {
+    const at = `people[${index}]`;
+    if (!isObject(person)) throw invalid(at);
+    if (!validEmail(person.email)) throw invalid(`${at}.email`);
+    if (emails.has(person.email.toLowerCase())) throw invalid(`${at}.email duplicate`);
+    if (typeof person.name !== "string") throw invalid(`${at}.name`);
+    if (!validRoles(person.roles, person.role)) throw invalid(`${at}.roles`);
+    if (!["active", "disabled"].includes(person.status)) throw invalid(`${at}.status`);
+    if (!stringSet(person.permissions)) throw invalid(`${at}.permissions`);
+    if (!Number.isSafeInteger(person.ctx_version) || person.ctx_version < 1)
+      throw invalid(`${at}.ctx_version`);
+    if (!(person.last_login === null || (typeof person.last_login === "string" && Number.isFinite(Date.parse(person.last_login)))))
+      throw invalid(`${at}.last_login`);
+    const personLocationsDetail = locationsProblem(person.locations, true);
+    if (personLocationsDetail !== null) throw invalid(`${at}.locations${personLocationsDetail}`);
+    if (person.role === "ops" ? person.locations !== "all" : person.locations === "all")
+      throw invalid(`${at}.locations scope`);
     emails.add(person.email.toLowerCase());
-    if (person.locations !== "all" && person.locations.some((location) => {
-      const canonical = locationsById.get(location.id);
-      return !canonical || canonical.key !== location.key || canonical.name !== location.name || canonical.is_mule !== location.is_mule;
-    })) throw invalid();
+    if (person.locations !== "all") {
+      const contradiction = person.locations.findIndex((location) => {
+        const canonical = locationsById.get(location.id);
+        return !canonical || canonical.key !== location.key || canonical.name !== location.name || canonical.is_mule !== location.is_mule;
+      });
+      if (contradiction !== -1) throw invalid(`${at}.locations[${contradiction}] not canonical`);
+    }
   }
   return directory;
 }
@@ -639,8 +712,11 @@ export async function fetchAppDirectory(
     }
     try {
       return validateDirectory(await response.json(), options, startedAt);
-    } catch {
-      throw new PortalError("The Portal returned an invalid directory response.");
+    } catch (error) {
+      // Keep validation's field/position detail; an unreadable body has none.
+      throw new PortalError("The Portal returned an invalid directory response.", false, false, {
+        detail: error instanceof PortalError ? error.detail : undefined,
+      });
     }
   } finally {
     done();
