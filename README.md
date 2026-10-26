@@ -21,23 +21,20 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.2.2"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.3.0"
 }
 ```
 
 `better-sqlite3`, `express`, and (optionally) `google-auth-library` are peer
 dependencies — the app already has them.
 
-### v0.2.2 release gates
+### v0.3.0 release gates
 
-Complete this release in order:
-
-1. Merge Portal Auth PR #4 into `main`.
-2. Create and publish the `v0.2.2` tag from that merged `main` commit.
-3. Update both the package and lockfile pin in Labour Live PR #47 to `v0.2.2`,
-   rerun its checks, and only then merge that PR.
-
-Do not begin the remaining fleet bump until all three steps are complete.
+The `v0.3.0` tag is created only after sections 2–4 of
+[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md) pass
+on the merged release commit: the production data check, the release-commit
+checks and the cross-repo proofs. No app pins `#v0.3.0` before that tag
+exists. Each app then adopts it by following section 5 of that file.
 
 ## Use
 
@@ -153,7 +150,7 @@ In the default cached mode, simultaneous stale requests for the same session sha
 inside each connector process. The in-flight entry is removed after success or
 failure, so a later request can retry normally.
 
-### Request authority (unreleased, issue #8)
+### Request authority (v0.3.0, issue #8)
 
 HR must use `authorityMode: "request"` with either `createPortalAuth` or
 `createPortalAuthAsync`. Mount `requireAuth` on every protected view, download,
@@ -218,10 +215,10 @@ fails as a whole. Every deployed connector that validates `roles` must accept a
 new additional role before the Portal assigns it. So for any role beyond
 `finance` and `hr`, release a connector that accepts it, and have every
 consuming app adopt that release, before the Portal starts emitting it. The
-Portal stores only `finance` today: migration 8 in mule-portal `src/database.ts`
-allows no other value, and `ADDITIONAL_ROLES` in `src/identity.ts` is
-`["finance"]`. The connector accepts `hr` ahead of the Portal. Connectors
-released before PR #10 do not validate `roles` at all.
+Portal stores `finance` and `hr` since mule-portal#123: migration 9 in
+mule-portal `src/database.ts` allows no other value, and `ADDITIONAL_ROLES` in
+`src/identity.ts` is `["finance", "hr"]`. Connectors released before PR #10 do
+not validate `roles` at all.
 
 The new fields are optional in the TypeScript interface so older scalar
 consumers still compile. In cached mode only, a live Portal response that lacks
@@ -279,10 +276,9 @@ names two Portal commits that were never published and a `dist/index.js`
 fingerprint that does not match the file merged at `ad09394`. Its
 [erratum](docs/evidence/authority-2026-10-25/ERRATUM-2026-10-26.md) gives the
 corrections and the re-verification on the merged bytes.
-Release tagging and consumer pins remain separate gates; the package version
-is still `0.2.4`. Follow
-[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md) before
-tagging.
+The package version is `0.3.0`. The `v0.3.0` tag and consumer pins remain
+separate gates that follow
+[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md).
 
 An async store shared by multiple service instances can additionally implement:
 
@@ -319,7 +315,7 @@ Portal re-check before they can use that exception. The successful check marks
 the row `portal-v2`. Async stores that persist the optional source marker pay
 that forced re-check once; a store that ignores it remains safe by rechecking
 until expiry. Labour Live's companion `agent/portal-credential-rotation` branch
-persists the marker; follow the v0.2.2 release gates above before the fleet bump.
+persists the marker.
 A Portal response that
 marks the person inactive, or removes this app from their grants, destroys the
 session. A successful Portal response always controls role, admin status,
