@@ -357,6 +357,7 @@ function unavailableForStatus(status: number): boolean {
 }
 
 const PORTAL_ROLES = new Set(["ops", "franchisee", "gm", "manager", "chef"]);
+const ADDITIONAL_PORTAL_ROLES = new Set(["finance", "hr"]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -373,7 +374,7 @@ function stringSet(value: unknown): value is string[] {
 
 function validRoles(value: unknown, primary: unknown): boolean {
   return typeof primary === "string" && PORTAL_ROLES.has(primary) && stringSet(value) &&
-    value[0] === primary && value.slice(1).every((role) => role === "finance");
+    value[0] === primary && value.slice(1).every((role) => ADDITIONAL_PORTAL_ROLES.has(role));
 }
 
 function validLocations(value: unknown, requireCanonical: boolean): boolean {

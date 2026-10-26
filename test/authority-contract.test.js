@@ -12,14 +12,14 @@ const nonMule = { id: 2, key: "commissary", name: "Commissary", is_mule: false }
 const context = (overrides = {}) => ({
   email: "person@example.invalid", name: "Synthetic Person", role: "manager",
   roles: ["manager", "finance"], is_admin: false, status: "active", active: true,
-  locations: [location], apps: ["hr"], app_permissions: { hr: ["processor"] },
+  locations: [location], apps: ["hr", "quarterly"], app_permissions: { quarterly: ["admin"] },
   ctx_version: 1, ...overrides,
 });
 const directory = (overrides = {}) => ({
   syncedAt: new Date().toISOString(), locations: [location],
   people: [{ email: "person@example.invalid", name: "Synthetic Person", role: "manager",
     roles: ["manager", "finance"], status: "active", locations: [location],
-    permissions: ["processor"], ctx_version: 1, last_login: null }], ...overrides,
+    permissions: [], ctx_version: 1, last_login: null }], ...overrides,
 });
 
 async function listen(t, handler) {
@@ -93,12 +93,19 @@ for (const kind of ["sync", "async"]) {
     const session = await auth.signInWithPortalToken("synthetic-sso");
     assert.equal(session.role, "manager");
     assert.deepEqual(session.context.roles, ["manager", "finance"]);
-    assert.deepEqual(session.context.app_permissions, { hr: ["processor"] });
+    assert.deepEqual(session.context.app_permissions, { quarterly: ["admin"] });
+    for (const roles of [["manager", "hr"], ["manager", "hr", "finance"], ["manager", "finance"], ["gm", "hr"]]) {
+      state.context = context({ role: roles[0], roles });
+      const additive = await auth.signInWithPortalToken("synthetic-sso").catch((error) => error);
+      assert.deepEqual(additive?.context?.roles, roles, `accepted additive roles ${JSON.stringify(roles)}`);
+    }
     for (const patch of [
       { roles: ["finance"] }, { roles: ["manager", "ops"] }, { roles: ["manager", "manager"] },
       { roles: "manager" }, { roles: undefined }, { app_permissions: undefined },
-      { app_permissions: { hr: "processor" } }, { app_permissions: { other: ["processor"] } },
-      { app_permissions: { hr: ["processor", "processor"] } },
+      { roles: ["manager", "processor"] }, { roles: ["manager", "hr", "hr"] }, { roles: ["manager", "admin"] },
+      { roles: ["hr"] }, { roles: ["manager", "HR"] },
+      { app_permissions: { quarterly: "admin" } }, { app_permissions: { other: ["admin"] } },
+      { app_permissions: { quarterly: ["admin", "admin"] } },
       { locations: [{ ...location, is_mule: "true" }] },
       { locations: [{ id: 1, key: "hamilton", name: "Hamilton" }] },
       { locations: "all" },
@@ -205,9 +212,9 @@ for (const kind of ["sync", "async"]) {
     assert.deepEqual(first.locations, [location]);
     assert.deepEqual(first.people[0].roles, ["manager", "finance"]);
     assert.equal(state.directoryQuery.has("include_non_mule"), false);
-    const changed = { ...first.people[0], roles: ["manager"], permissions: [], status: "disabled", locations: [nonMule], ctx_version: 2 };
+    const changed = { ...first.people[0], roles: ["manager", "hr"], permissions: [], status: "disabled", locations: [nonMule], ctx_version: 2 };
     state.directory = directory({ locations: [location, nonMule], people: [changed] });
-    const next = await auth.readAppDirectory({ include_non_mule: true });
+    const next = await auth.readAppDirectory({ include_non_mule: true }).catch((error) => error);
     assert.equal(state.directoryQuery.get("include_non_mule"), "true");
     assert.deepEqual(next.locations, [location, nonMule]);
     assert.deepEqual(next.people, [changed]);
@@ -227,6 +234,7 @@ for (const kind of ["sync", "async"]) {
       { locations: [{ id: 1, key: "hamilton", name: "Hamilton" }] },
       { locations: [location, nonMule] }, { locations: [location, location] },
       { people: [{ ...person, roles: undefined }] }, { people: [{ ...person, permissions: undefined }] },
+      { people: [{ ...person, roles: ["manager", "processor"] }] }, { people: [{ ...person, roles: ["manager", "hr", "hr"] }] },
       { people: [{ ...person, ctx_version: 0 }] }, { people: [{ ...person, status: "unknown" }] },
       { people: [{ ...person, locations: "all" }] }, { people: [person, person] },
       ...["id", "key", "name", "is_mule"].map((field) => ({ people: [{ ...person, locations: [{ ...location, [field]: nonMule[field] }] }] })),
