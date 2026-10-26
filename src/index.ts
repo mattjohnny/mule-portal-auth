@@ -318,8 +318,9 @@ export function createPortalAuth(config: PortalAuthConfig) {
     if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
-    // The Portal stamps its handle's expiry while redeeming, so measure this
-    // session from before that request: it can then never outlive the handle.
+    // The Portal stamps its handle's expiry, by its own clock, while redeeming.
+    // Measuring this session from before that request means it cannot outlive
+    // the handle as long as this app's clock agrees with the Portal's.
     const startedAt = Date.now();
     const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))
@@ -758,8 +759,9 @@ export function createPortalAuthAsync(config: AsyncPortalAuthConfig) {
     if (!portalUrl || !serviceAuth.configured())
       throw new PortalError("Portal sign-in isn't configured.");
     if (!ssoToken) throw new PortalError("Missing sign-in token.");
-    // The Portal stamps its handle's expiry while redeeming, so measure this
-    // session from before that request: it can then never outlive the handle.
+    // The Portal stamps its handle's expiry, by its own clock, while redeeming.
+    // Measuring this session from before that request means it cannot outlive
+    // the handle as long as this app's clock agrees with the Portal's.
     const startedAt = Date.now();
     const { context, revalidationHandle } = await redeemSso(portal, ssoToken);
     if (!context.active || ((requestAuthority || !context.is_admin) && !context.apps.includes(appName)))

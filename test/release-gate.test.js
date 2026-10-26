@@ -384,7 +384,7 @@ for (const kind of ["sync", "async"]) {
   });
 }
 
-test("async: request mode refuses a dev row when Portal configuration disappears under the lock", async (t) => {
+test("async: request mode re-checks Portal configuration in revalidateUnderLock and refuses a dev row", async (t) => {
   denials(t);
   const portalUrl = await listen(t, async (req, res) => {
     for await (const _ of req) { /* consume synthetic request body */ }
@@ -406,8 +406,10 @@ test("async: request mode refuses a dev row when Portal configuration disappears
   const app = express();
   app.get("/view", strict.requireAuth, (req, res) => res.json(req.portal.context));
   const appUrl = await listen(t, app);
-  // requireAuth reads the row once, revalidateOnce once (configuration still
-  // present), and revalidateUnderLock a third time: configuration goes there.
+  // Request mode takes no lock: revalidateOnce calls revalidateUnderLock
+  // directly, which reads the row again and re-checks configuration. requireAuth
+  // reads the row once, revalidateOnce once (configuration still present), and
+  // revalidateUnderLock a third time: configuration goes there.
   let reads = 0;
   const get = store.get;
   store.get = async (token) => { if (++reads === 3) configured = false; return get(token); };

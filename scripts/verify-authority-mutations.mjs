@@ -52,7 +52,7 @@ const releaseGateTitles = [
     "a request requireAuth has not admitted has no context, whatever req.context says",
     "an SSO session is measured from before the Portal issued its handle",
   ].map((title) => `${kind}: ${title}`)),
-  "async: request mode refuses a dev row when Portal configuration disappears under the lock",
+  "async: request mode re-checks Portal configuration in revalidateUnderLock and refuses a dev row",
   "async: a session store's PortalError cannot set an out-of-range Retry-After",
   "async: a row a peer validated under the lock is returned from the store, not the caller's Session",
   "Portal error classes have allow-listed log names",
@@ -82,7 +82,7 @@ const cases = [
   ["canonical-context", [portal('validLocations(ctx.locations, strict)', 'validLocations(ctx.locations, false)')], ["additive roles"]],
   ["sso-email-validation", [portal('!validEmail(body?.email)', '!body?.email'), portal('!validEmail(email) ||', '!email ||')], ["malformed SSO"]],
   ["sso-handle-validation", [portal('body.revalidation_handle !== undefined && typeof body.revalidation_handle !== "string"', 'false'), portal('!body.revalidation_handle?.trim() && opts.serviceAuth.hasCredentialProvider()', 'false')], ["malformed SSO"]],
-  ["request-cache-reuse", [index('!requestAuthority &&\n            hasCurrentAuthorityProvenance(row.source)', 'hasCurrentAuthorityProvenance(row.source)', 3)], ["even ops", "request authority refreshes", "request authority does not require", "post-fetch session-store", "request mode refuses a dev session", "request mode deletes the session", "request mode revalidates every request", "log the allow-listed PortalError name", "only a plain delta-seconds Retry-After", "async: request mode refuses a dev row when Portal configuration disappears"]],
+  ["request-cache-reuse", [index('!requestAuthority &&\n            hasCurrentAuthorityProvenance(row.source)', 'hasCurrentAuthorityProvenance(row.source)', 3)], ["even ops", "request authority refreshes", "request authority does not require", "post-fetch session-store", "request mode refuses a dev session", "request mode deletes the session", "request mode revalidates every request", "log the allow-listed PortalError name", "only a plain delta-seconds Retry-After", "async: request mode re-checks Portal configuration in revalidateUnderLock"]],
   ["earlier-inflight-reuse", [index('if (requestAuthority)\n            return revalidateOnce(session);', '// fresh bypass removed', 2)], ["later requests never share", "request mode revalidates every request"]],
   ["offline-fallback", [index('!requestAuthority &&\n                allowOfflineAdmin', 'allowOfflineAdmin', 4)], ["request authority refreshes"]],
   ["ops-app-bypass", [index('(requestAuthority || !context.is_admin)', '!context.is_admin', 2), index('(requestAuthority || !ctx.is_admin)', '!ctx.is_admin', 4)], ["even ops"]],
@@ -96,7 +96,8 @@ const cases = [
   ["legacy-type-compatibility", [mutation("dist/types.d.ts", 'roles?: string[];', 'roles: string[];')], ["legacy scalar consumers"]],
   // Release-gate additions. Each edits one emitted site. The async dev guard in
   // revalidateUnderLock is its own mutant below (async-dev-guard-under-lock):
-  // configuration can disappear between revalidateOnce's check and the lock.
+  // revalidateUnderLock re-checks Portal configuration after revalidateOnce did
+  // (request mode calls it directly, without a lock), and it can change between.
   ["sync-dev-request-guard", [index(`deny.\n            if (!requestAuthority && row.source === "dev")`, `deny.\n            if (row.source === "dev")`)], ["sync: request mode refuses a dev session"]],
   ["async-dev-request-guard", [index('if (!requestAuthority && row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        if (!requestAuthority && store.withRevalidationLock)', 'if (row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        if (!requestAuthority && store.withRevalidationLock)')], ["async: request mode refuses a dev session"]],
   ["sync-revoked-grant-kept", [index('!ctx.apps.includes(appName)) {\n            destroy(session.token);', '!ctx.apps.includes(appName)) {')], ["sync: request mode deletes the session"]],
@@ -139,7 +140,7 @@ const cases = [
   // is equivalent, because receivedAt >= startedAt means any syncedAt it rejects
   // is already more than 30 s before receivedAt and the absolute check rejects
   // it too (barring a backwards wall-clock step between the two readings).
-  ["async-dev-guard-under-lock", [index('if (!portalUrl || !serviceAuth.configured()) {\n            if (!requestAuthority && row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        // The stored row', 'if (!portalUrl || !serviceAuth.configured()) {\n            if (row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        // The stored row')], ["async: request mode refuses a dev row when Portal configuration disappears"]],
+  ["async-dev-guard-under-lock", [index('if (!portalUrl || !serviceAuth.configured()) {\n            if (!requestAuthority && row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        // The stored row', 'if (!portalUrl || !serviceAuth.configured()) {\n            if (row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        // The stored row')], ["async: request mode re-checks Portal configuration in revalidateUnderLock"]],
   ["location-shared-id", [portal('if (ids.has(location.id))', 'if (false)')], ["locations sharing an id are refused"]],
   ["index-retry-after-range", [index('value >= MIN_RETRY_AFTER_SECONDS && value <= MAX_RETRY_AFTER_SECONDS', 'true')], ["async: a session store's PortalError cannot set"]],
   ["index-retry-after-integer", [index('Number.isSafeInteger(value) &&', '')], ["async: a session store's PortalError cannot set"]],
