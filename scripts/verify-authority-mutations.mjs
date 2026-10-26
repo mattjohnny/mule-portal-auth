@@ -24,7 +24,18 @@ const titles = [
   ].map((title) => `${kind}: ${title}`)),
   "async: request authority does not require writing a cached context snapshot",
   "async: post-fetch session-store failure denies without leaking error content",
+  ...["sync", "async"].flatMap((kind) => [
+    "request mode refuses a dev session when the Portal is unconfigured",
+    "request mode deletes the session when the app grant is revoked",
+    "directory allows 30 seconds of clock skew and refuses more",
+    "request mode revalidates every request through the handle and never rewrites the stored row",
+    "cached mode rejects present malformed permissions and location flags",
+    "directory rejects shared location keys, non-boolean options and undated logins",
+  ].map((title) => `${kind}: ${title}`)),
 ];
+// A part naming one kind ("sync: …" / "async: …") selects only that kind's
+// test: as a plain substring "sync: x" would also match "async: x".
+const selects = (title, part) => /^a?sync: /.test(part) ? title.startsWith(part) : title.includes(part);
 
 const mutation = (file, from, to, count = 1) => ({ file, from, to, count });
 const index = (from, to, count) => mutation("dist/index.js", from, to, count);
@@ -33,22 +44,39 @@ const cases = [
   ["invalid-mode-fallback", [index('mode !== undefined && mode !== "cached" && mode !== "request"', 'false')], ["unknown authority modes"]],
   ["required-claims", [portal('opts.authorityMode === "request");', 'false);', 2)], ["additive roles", "even ops"]],
   ["role-contradiction", [portal('!validRoles(roles, ctx.role)', 'false')], ["additive roles", "legacy scalar payloads", "even ops"]],
-  ["permission-validation", [portal('!permissionsInvariant ||', 'false ||')], ["additive roles"]],
+  ["permission-validation", [portal('!permissionsInvariant ||', 'false ||')], ["additive roles", "cached mode rejects present malformed"]],
   ["canonical-context", [portal('validLocations(ctx.locations, strict)', 'validLocations(ctx.locations, false)')], ["additive roles"]],
   ["sso-email-validation", [portal('!validEmail(body?.email)', '!body?.email'), portal('!validEmail(email) ||', '!email ||')], ["malformed SSO"]],
   ["sso-handle-validation", [portal('body.revalidation_handle !== undefined && typeof body.revalidation_handle !== "string"', 'false'), portal('!body.revalidation_handle?.trim() && opts.serviceAuth.hasCredentialProvider()', 'false')], ["malformed SSO"]],
-  ["request-cache-reuse", [index('!requestAuthority &&\n            hasCurrentAuthorityProvenance(row.source)', 'hasCurrentAuthorityProvenance(row.source)', 3)], ["even ops", "request authority refreshes", "request authority does not require", "post-fetch session-store"]],
-  ["earlier-inflight-reuse", [index('if (requestAuthority)\n            return revalidateOnce(session);', '// fresh bypass removed', 2)], ["later requests never share"]],
+  ["request-cache-reuse", [index('!requestAuthority &&\n            hasCurrentAuthorityProvenance(row.source)', 'hasCurrentAuthorityProvenance(row.source)', 3)], ["even ops", "request authority refreshes", "request authority does not require", "post-fetch session-store", "request mode refuses a dev session", "request mode deletes the session", "request mode revalidates every request"]],
+  ["earlier-inflight-reuse", [index('if (requestAuthority)\n            return revalidateOnce(session);', '// fresh bypass removed', 2)], ["later requests never share", "request mode revalidates every request"]],
   ["offline-fallback", [index('!requestAuthority &&\n                allowOfflineAdmin', 'allowOfflineAdmin', 4)], ["request authority refreshes"]],
   ["ops-app-bypass", [index('(requestAuthority || !context.is_admin)', '!context.is_admin', 2), index('(requestAuthority || !ctx.is_admin)', '!ctx.is_admin', 4)], ["even ops"]],
   ["deleted-session-admission", [index('if (!getRow(session.token))\n                return null;', 'if (false) return null;'), index('if (!await getRow(session.token))\n                return null;', 'if (false) return null;')], ["later requests never share", "post-fetch session-store"]],
-  ["request-snapshot-write", [index('else\n            await saveContext(session.token, ctx);', 'await saveContext(session.token, ctx);')], ["request authority does not require"]],
+  ["request-snapshot-write", [index('else\n            await saveContext(session.token, ctx);', 'await saveContext(session.token, ctx);')], ["request authority does not require", "async: request mode revalidates every request"]],
   ["non-mule-option", [portal('endpoint.searchParams.set("include_non_mule", "true");', 'endpoint.searchParams.set("include_non_mule", "false");')], ["typed directory is fresh"]],
-  ["directory-shape-validation", [portal('return validateDirectory(await response.json(), options, startedAt);', 'return await response.json();')], ["missing stale"]],
+  ["directory-shape-validation", [portal('return validateDirectory(await response.json(), options, startedAt);', 'return await response.json();')], ["missing stale", "directory allows 30 seconds", "directory rejects shared location keys"]],
   ["directory-location-contradiction", [portal('return !canonical || canonical.key !== location.key || canonical.name !== location.name || canonical.is_mule !== location.is_mule;', 'return false;')], ["missing stale"]],
-  ["directory-past-timestamp", [portal('syncedAt < startedAt - 30_000 || Math.abs(receivedAt - syncedAt) > 30_000', 'syncedAt > receivedAt + 30_000')], ["missing stale"]],
-  ["directory-future-timestamp", [portal('Math.abs(receivedAt - syncedAt) > 30_000', 'receivedAt - syncedAt > 30_000')], ["missing stale"]],
+  ["directory-past-timestamp", [portal('syncedAt < startedAt - 30_000 || Math.abs(receivedAt - syncedAt) > 30_000', 'syncedAt > receivedAt + 30_000')], ["missing stale", "directory allows 30 seconds"]],
+  ["directory-future-timestamp", [portal('Math.abs(receivedAt - syncedAt) > 30_000', 'receivedAt - syncedAt > 30_000')], ["missing stale", "directory allows 30 seconds"]],
   ["legacy-type-compatibility", [mutation("dist/types.d.ts", 'roles?: string[];', 'roles: string[];')], ["legacy scalar consumers"]],
+  // Release-gate additions. Each edits one emitted site; the async dev guard in
+  // revalidateUnderLock is left alone because revalidateOnce applies the same
+  // guard first, so removing it alone is an equivalent mutant.
+  ["sync-dev-request-guard", [index(`deny.\n            if (!requestAuthority && row.source === "dev")`, `deny.\n            if (row.source === "dev")`)], ["sync: request mode refuses a dev session"]],
+  ["async-dev-request-guard", [index('if (!requestAuthority && row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        if (!requestAuthority && store.withRevalidationLock)', 'if (row.source === "dev")\n                return rowToSession(row);\n            throw new PortalError("Portal access verification isn\'t configured.");\n        }\n        if (!requestAuthority && store.withRevalidationLock)')], ["async: request mode refuses a dev session"]],
+  ["sync-revoked-grant-kept", [index('!ctx.apps.includes(appName)) {\n            destroy(session.token);', '!ctx.apps.includes(appName)) {')], ["sync: request mode deletes the session"]],
+  ["async-revoked-grant-kept", [index('!ctx.apps.includes(appName)) {\n            await destroy(session.token);', '!ctx.apps.includes(appName)) {')], ["async: request mode deletes the session"]],
+  ["directory-skew-narrowed", [portal('Math.abs(receivedAt - syncedAt) > 30_000', 'Math.abs(receivedAt - syncedAt) > 10_000')], ["directory allows 30 seconds"]],
+  ["directory-skew-widened", [portal('Math.abs(receivedAt - syncedAt) > 30_000', 'Math.abs(receivedAt - syncedAt) > 60_000')], ["directory allows 30 seconds"]],
+  ["directory-start-skew-narrowed", [portal('syncedAt < startedAt - 30_000', 'syncedAt < startedAt - 10_000')], ["directory allows 30 seconds"]],
+  ["handle-transport", [portal('const useHandle = !!revalidationHandle && opts.serviceAuth.hasCredentialProvider();', 'const useHandle = false;')], ["request mode deletes the session", "request mode revalidates every request"]],
+  ["sync-request-snapshot-write", [index('else\n            saveContext(session.token, ctx);', 'saveContext(session.token, ctx);')], ["sync: request mode revalidates every request"]],
+  ["cached-permission-keys", [portal('appsInvariant && ctx.apps.includes(app) && stringSet(values)', 'appsInvariant && (!strict || ctx.apps.includes(app)) && stringSet(values)')], ["cached mode rejects present malformed"]],
+  ["cached-location-flag", [portal('(!requireCanonical && location.is_mule === undefined)', '!requireCanonical')], ["cached mode rejects present malformed"]],
+  ["directory-shared-location-key", [portal(' &&\n        new Set(value.map((location) => location.key)).size === value.length;', ';')], ["directory rejects shared location keys"]],
+  ["directory-option-type", [portal('options.include_non_mule !== undefined && typeof options.include_non_mule !== "boolean"', 'false')], ["directory rejects shared location keys"]],
+  ["directory-last-login-date", [portal('Number.isFinite(Date.parse(person.last_login))', 'true')], ["directory rejects shared location keys"]],
 ];
 
 function restore() {
@@ -79,7 +107,7 @@ try {
       writeFileSync(file, text.replaceAll(from, to));
     }
     preflight();
-    const expected = titles.filter((title) => expectedParts.some((part) => title.includes(part)));
+    const expected = titles.filter((title) => expectedParts.some((part) => selects(title, part)));
     assert.ok(expected.length > 0);
     const { failed } = run(name);
     assert.deepEqual(failed, expected, `${name}: unexpected failure census`);
