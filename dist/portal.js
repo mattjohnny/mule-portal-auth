@@ -291,6 +291,7 @@ function unavailableForStatus(status) {
     return RETRYABLE_PORTAL_STATUSES.has(status);
 }
 const PORTAL_ROLES = new Set(["ops", "franchisee", "gm", "manager", "chef"]);
+const ADDITIONAL_PORTAL_ROLES = new Set(["finance", "hr"]);
 function isObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -303,7 +304,7 @@ function stringSet(value) {
 }
 function validRoles(value, primary) {
     return typeof primary === "string" && PORTAL_ROLES.has(primary) && stringSet(value) &&
-        value[0] === primary && value.slice(1).every((role) => role === "finance");
+        value[0] === primary && value.slice(1).every((role) => ADDITIONAL_PORTAL_ROLES.has(role));
 }
 function validLocations(value, requireCanonical) {
     if (value === "all")

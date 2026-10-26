@@ -171,7 +171,10 @@ is that request's authority result. Calls that began before a Portal change are
 not a substitute for a new authorization check after that change.
 
 `Context.role`, `Session.role`, and `is_admin` retain their primary-role meaning.
-`roles` includes that primary role first and validated additional roles;
+`roles` includes that primary role first, then any of the additional roles
+`finance` and `hr`, each at most once; any other value fails validation. Every
+deployed connector that validates `roles` must accept a new additional role
+before the Portal assigns it;
 `app_permissions` is a sparse map of app keys to permission lists. A missing app
 key or empty list grants no permission. Apps apply their domain policy using
 these facts and exact canonical locations. The connector adds no HR policy.
@@ -185,7 +188,8 @@ cached-mode timing, coalescing, and explicit outage behavior remain unchanged.
 `people` with `role`, `roles`, `permissions`, `status`, `locations`,
 `ctx_version`, and `last_login`. Non-Mule catalogue and person locations require
 the explicit option. Disabled people may remain in the directory: callers must
-check `status` before selecting an eligible processor or recipient.
+check `status`, and apply their own eligibility policy, before selecting a
+processor or recipient.
 
 Every directory call fetches afresh with `cache: "no-store"`; transport failure,
 missing fields, duplicate/contradictory identities or locations, and timestamps
