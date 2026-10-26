@@ -173,37 +173,55 @@ has set `req.context`. For a request that has not passed `requireAuth`, they
 return `null` or an empty list. Calls that began before a Portal change are
 not a substitute for a new authorization check after that change.
 
-Request mode draws on a Portal rate limit that other apps may share. The Portal's
-app-to-app routes (`POST /api/redeem-sso`, `POST /api/context`,
-`POST /api/credential-proof`, and `GET /api/app-directory`) share one limit of 60
-requests per one-minute window. The limit is counted per source address, before
-authentication, in a PostgreSQL store that every Portal instance shares. Request
-mode makes one `POST /api/context` for every protected request, so the 61st
-protected request in a minute gets a Portal `429`, which the connector returns
-as a `503`. In cached mode, simultaneous requests in one process share one call,
-and each session is re-checked at most once per `revalidateMs` while re-checks
-succeed. A failed re-check, including a `429`, does not advance the session's
-validation time, so each later request for that session calls the Portal again
-until one succeeds. In either mode, a `401` on one app credential makes the
-connector try the next, so one lookup can send more than one POST. Render
-services in the same region share outbound address ranges, so sign-ins,
-re-checks, credential proofs, and directory reads from other apps may count
-against the same 60. Confirm this capacity before any request-mode pilot. The Portal-side finding is STAB-17 in
-mattjohnny/mule-fleet-docs `audits/stability/portal-2026-10-25-608b090.md`.
+Request mode draws on the Portal's per-app rate limit. Since mule-portal#122
+(`bc353a7`, in production), each authenticated app has its own allowance of 60
+requests per one-minute window on the Portal's app-to-app routes
+(`POST /api/redeem-sso`, `POST /api/context`, `POST /api/credential-proof`, and
+`GET /api/app-directory`), from any address. The count is kept in a PostgreSQL
+store that every Portal instance shares. A separate limit of 60 a minute per
+source address runs before authentication. It counts only requests whose app
+credential does not authenticate, so other apps behind the same Render egress
+address no longer spend this app's allowance. An authenticated call still holds
+its address slot until it completes, so 60 or more calls in flight at once from
+one address can be refused.
+
+Request mode makes one `POST /api/context` for every protected request, and the
+same app's sign-ins, credential proofs, and directory reads count against the
+same 60. A request-mode app therefore gets at most 60 Portal calls a minute
+across all its users. The next call gets a Portal `429` with a `Retry-After`,
+which the connector passes on in its `503`. In cached mode, simultaneous
+requests in one process share one call, and each session is re-checked at most
+once per `revalidateMs` while re-checks succeed. A failed re-check, including a
+`429`, does not advance the session's validation time, so each later request for
+that session calls the Portal again until one succeeds. In either mode, a `401`
+on one app credential makes the connector try the next, so one lookup can send
+more than one POST. The refused attempt counts against the address limit.
+Before any request-mode pilot, confirm that the app's peak rate of Portal calls
+fits within 60 a minute, or get a Portal change that raises its allowance. The
+Portal-side finding is STAB-17 in mattjohnny/mule-fleet-docs
+`audits/stability/portal-2026-10-25-608b090.md`. The fleet audit record
+(`audits/apps/portal.json`) still lists it as open while its closeout is in
+progress.
 
 `Context.role`, `Session.role`, and `is_admin` retain their primary-role meaning.
-`roles` includes that primary role first and validated additional roles;
+`roles` includes that primary role first, then any of the additional roles
+`finance` and `hr`, each at most once; any other value fails validation.
 `app_permissions` is a sparse map of app keys to permission lists. A missing app
 key or empty list grants no permission. Apps apply their domain policy using
 these facts and exact canonical locations. The connector adds no HR policy.
 
-`finance` is the only additional role the connector accepts. Any other
-additional role makes a context or directory entry malformed, in cached mode as
-well as request mode. That person's sign-in fails. Once their session is due for
-a re-check, every protected request they make is refused. Any directory read
-that includes them fails as a whole. Before the Portal starts emitting a new
-additional role, release a connector that accepts it and have every consuming
-app adopt that release.
+This validation applies in cached mode as well as request mode. An additional
+role other than `finance` or `hr` makes that person's context or directory entry
+malformed. Their sign-in fails. Once their session is due for a re-check, every
+protected request they make is refused. Any directory read that includes them
+fails as a whole. Every deployed connector that validates `roles` must accept a
+new additional role before the Portal assigns it. So for any role beyond
+`finance` and `hr`, release a connector that accepts it, and have every
+consuming app adopt that release, before the Portal starts emitting it. The
+Portal stores only `finance` today: migration 8 in mule-portal `src/database.ts`
+allows no other value, and `ADDITIONAL_ROLES` in `src/identity.ts` is
+`["finance"]`. The connector accepts `hr` ahead of the Portal. Connectors
+released before PR #10 do not validate `roles` at all.
 
 The new fields are optional in the TypeScript interface so older scalar
 consumers still compile. In cached mode only, a live Portal response that lacks
@@ -241,7 +259,8 @@ retries. A refused `readAppDirectory()` still fails as a whole. Its
 `people` with `role`, `roles`, `permissions`, `status`, `locations`,
 `ctx_version`, and `last_login`. Non-Mule catalogue and person locations require
 the explicit option. Disabled people may remain in the directory: callers must
-check `status` before selecting an eligible processor or recipient.
+check `status`, and apply their own eligibility policy, before selecting a
+processor or recipient.
 
 Every directory call fetches afresh with `cache: "no-store"`; transport failure,
 missing fields, duplicate/contradictory identities or locations, and timestamps

@@ -9,17 +9,19 @@ import { createPortalAuth, createPortalAuthAsync } from "../dist/index.js";
 
 const location = { id: 1, key: "hamilton", name: "Hamilton", is_mule: true };
 const nonMule = { id: 2, key: "commissary", name: "Commissary", is_mule: false };
+// Turns a rejection into a value, so wrongly refusing valid roles fails an assertion.
+const settle = (promise) => promise.catch((error) => error);
 const context = (overrides = {}) => ({
   email: "person@example.invalid", name: "Synthetic Person", role: "manager",
   roles: ["manager", "finance"], is_admin: false, status: "active", active: true,
-  locations: [location], apps: ["hr"], app_permissions: { hr: ["processor"] },
+  locations: [location], apps: ["hr", "quarterly"], app_permissions: { quarterly: ["admin"] },
   ctx_version: 1, ...overrides,
 });
 const directory = (overrides = {}) => ({
   syncedAt: new Date().toISOString(), locations: [location],
   people: [{ email: "person@example.invalid", name: "Synthetic Person", role: "manager",
     roles: ["manager", "finance"], status: "active", locations: [location],
-    permissions: ["processor"], ctx_version: 1, last_login: null }], ...overrides,
+    permissions: [], ctx_version: 1, last_login: null }], ...overrides,
 });
 
 async function listen(t, handler) {
@@ -89,16 +91,24 @@ test("legacy scalar consumers and typed directory declarations compile", () => {
 
 for (const kind of ["sync", "async"]) {
   test(`${kind}: additive roles preserve the primary role and malformed grants fail closed`, async (t) => {
-    const { state, auth } = await fixture(t, kind);
+    const { state, auth, request } = await fixture(t, kind);
     const session = await auth.signInWithPortalToken("synthetic-sso");
     assert.equal(session.role, "manager");
     assert.deepEqual(session.context.roles, ["manager", "finance"]);
-    assert.deepEqual(session.context.app_permissions, { hr: ["processor"] });
+    assert.deepEqual(session.context.app_permissions, { quarterly: ["admin"] });
+    for (const roles of [["manager", "hr"], ["manager", "finance", "hr"], ["manager", "hr", "finance"], ["gm", "hr"]]) {
+      state.context = context({ role: roles[0], roles });
+      const additive = await settle(auth.signInWithPortalToken("synthetic-sso"));
+      assert.deepEqual(additive?.context?.roles, roles, JSON.stringify(roles));
+      assert.equal((await request(additive)).status, 200, JSON.stringify(roles));
+    }
     for (const patch of [
       { roles: ["finance"] }, { roles: ["manager", "ops"] }, { roles: ["manager", "manager"] },
       { roles: "manager" }, { roles: undefined }, { app_permissions: undefined },
-      { app_permissions: { hr: "processor" } }, { app_permissions: { other: ["processor"] } },
-      { app_permissions: { hr: ["processor", "processor"] } },
+      { roles: ["manager", "processor"] }, { roles: ["manager", "hr", "hr"] }, { roles: ["manager", "admin"] },
+      { roles: ["hr"] }, { roles: ["manager", "HR"] }, { role: "hr", roles: ["hr"] },
+      { app_permissions: { quarterly: "admin" } }, { app_permissions: { other: ["admin"] } },
+      { app_permissions: { quarterly: ["admin", "admin"] } },
       { locations: [{ ...location, is_mule: "true" }] },
       { locations: [{ id: 1, key: "hamilton", name: "Hamilton" }] },
       { locations: "all" },
@@ -134,6 +144,9 @@ for (const kind of ["sync", "async"]) {
     state.context = context({ active: false });
     assert.equal((await request(session)).status, 200);
     assert.equal(state.reads, 0);
+    state.context = context({ roles: ["manager", "finance", "hr"] });
+    const additive = await settle(auth.signInWithPortalToken("synthetic-sso"));
+    assert.deepEqual(additive?.context?.roles, ["manager", "finance", "hr"]);
     state.context = context({ roles: ["ops"] });
     await assert.rejects(() => auth.signInWithPortalToken("synthetic-sso"), /invalid context/);
   });
@@ -205,9 +218,9 @@ for (const kind of ["sync", "async"]) {
     assert.deepEqual(first.locations, [location]);
     assert.deepEqual(first.people[0].roles, ["manager", "finance"]);
     assert.equal(state.directoryQuery.has("include_non_mule"), false);
-    const changed = { ...first.people[0], roles: ["manager"], permissions: [], status: "disabled", locations: [nonMule], ctx_version: 2 };
+    const changed = { ...first.people[0], roles: ["manager", "finance", "hr"], permissions: [], status: "disabled", locations: [nonMule], ctx_version: 2 };
     state.directory = directory({ locations: [location, nonMule], people: [changed] });
-    const next = await auth.readAppDirectory({ include_non_mule: true });
+    const next = await settle(auth.readAppDirectory({ include_non_mule: true }));
     assert.equal(state.directoryQuery.get("include_non_mule"), "true");
     assert.deepEqual(next.locations, [location, nonMule]);
     assert.deepEqual(next.people, [changed]);
@@ -227,6 +240,8 @@ for (const kind of ["sync", "async"]) {
       { locations: [{ id: 1, key: "hamilton", name: "Hamilton" }] },
       { locations: [location, nonMule] }, { locations: [location, location] },
       { people: [{ ...person, roles: undefined }] }, { people: [{ ...person, permissions: undefined }] },
+      { people: [{ ...person, roles: ["manager", "processor"] }] }, { people: [{ ...person, roles: ["manager", "hr", "hr"] }] },
+      { people: [{ ...person, roles: ["gm", "hr"] }] }, { people: [{ ...person, roles: ["hr"] }] }, { people: [{ ...person, role: "hr", roles: ["hr"] }] },
       { people: [{ ...person, ctx_version: 0 }] }, { people: [{ ...person, status: "unknown" }] },
       { people: [{ ...person, locations: "all" }] }, { people: [person, person] },
       ...["id", "key", "name", "is_mule"].map((field) => ({ people: [{ ...person, locations: [{ ...location, [field]: nonMule[field] }] }] })),
@@ -427,7 +442,7 @@ for (const kind of ["sync", "async"]) {
     const { state, build } = await handleFixture(t, kind);
     const { auth } = await build({ authorityMode: "cached" });
     const session = await accepted(() => auth.signInWithPortalToken("synthetic-sso"), "well-formed cached sign-in");
-    assert.deepEqual(session.context.app_permissions, { hr: ["processor"] }, "control: well-formed claims sign in");
+    assert.deepEqual(session.context.app_permissions, { quarterly: ["admin"] }, "control: well-formed claims sign in");
     for (const patch of [
       { app_permissions: { other: ["processor"] } },
       { locations: [{ ...location, is_mule: "true" }] },

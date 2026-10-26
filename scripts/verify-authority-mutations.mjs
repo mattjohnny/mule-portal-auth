@@ -78,6 +78,12 @@ const cases = [
   ["invalid-mode-fallback", [index('mode !== undefined && mode !== "cached" && mode !== "request"', 'false')], ["unknown authority modes"]],
   ["required-claims", [portal('opts.authorityMode === "request");', 'false);', 2)], ["additive roles", "even ops", "log the allow-listed PortalError name"]],
   ["role-contradiction", [portal('!validRoles(roles, ctx.role)', 'false')], ["additive roles", "legacy scalar payloads", "even ops", "log the allow-listed PortalError name"]],
+  // PR #13 (additive hr role). The directory role check is its own statement
+  // here (it names the failed check in `detail`), so its anchor is that line.
+  ["additional-role-allowlist", [portal('ADDITIONAL_PORTAL_ROLES.has(role)', 'true')], ["additive roles", "missing stale"]],
+  ["hr-role-dropped", [portal('new Set(["finance", "hr"])', 'new Set(["finance"])')], ["additive roles", "legacy scalar payloads", "typed directory is fresh"]],
+  ["role-uniqueness", [portal('new Set(value).size === value.length', 'true')], ["additive roles", "missing stale"]],
+  ["directory-role-validation", [portal('if (!validRoles(person.roles, person.role))', 'if (false)')], ["missing stale", "a refused directory names the failed check"]],
   ["permission-validation", [portal('!permissionsInvariant ||', 'false ||')], ["additive roles", "cached mode rejects present malformed"]],
   ["canonical-context", [portal('validLocations(ctx.locations, strict)', 'validLocations(ctx.locations, false)')], ["additive roles"]],
   ["sso-email-validation", [portal('!validEmail(body?.email)', '!body?.email'), portal('!validEmail(email) ||', '!email ||')], ["malformed SSO"]],
