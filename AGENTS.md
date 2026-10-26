@@ -26,6 +26,18 @@ earlier in-flight lookup satisfies that guarantee. Request results are local to
 that request, never saved over later authority. Preserve cached-mode behavior
 for existing apps. Strict claims and directory validation must fail closed.
 
+`finance` is the only additional role `validRoles` accepts, and a present
+unknown role fails validation in both modes. Before the Portal emits a new
+additional role, ship a connector release that names it and have every consumer
+adopt that release. Add each role by name; never make the check accept unknown
+roles.
+
+Request mode makes one Portal `POST /api/context` per protected request. That
+call counts against the Portal's 60-a-minute limit, which is per source address
+and may be shared with other apps (README, "Request authority"; STAB-17). Never
+add retries, caching, or coalescing to request mode to stay under that limit.
+Capacity has to come from the Portal side.
+
 Run `test/authority-contract.test.js` against real localhost HTTP and Express,
 and `scripts/verify-authority-mutations.mjs` after building emitted artifacts.
 Do not run builds or integration tests concurrently with mutation scripts.
