@@ -122,9 +122,13 @@ const CASES = [
   [404, "30", { message: INVALID_LINK, portalStatus: 404 }],
   [400, undefined, { message: INVALID_LINK, portalStatus: 400 }],
   [410, undefined, { message: INVALID_LINK, portalStatus: 410 }],
+  // Redirects are never followed, so a 3xx is a refusal with its own status.
+  [302, undefined, { message: INVALID_LINK, portalStatus: 302 }],
   // Disabled person: still signedOut, still not an outage.
   [403, "30", { message: DISABLED, signedOut: true, portalStatus: 403 }],
   // Outage statuses keep `unavailable`; only 503 carries Retry-After.
+  [408, undefined, { message: UNAVAILABLE, unavailable: true, portalStatus: 408 }],
+  [425, undefined, { message: UNAVAILABLE, unavailable: true, portalStatus: 425 }],
   [500, "30", { message: UNAVAILABLE, unavailable: true, portalStatus: 500 }],
   [502, undefined, { message: UNAVAILABLE, unavailable: true, portalStatus: 502 }],
   [503, "45", { message: UNAVAILABLE, unavailable: true, portalStatus: 503, retryAfterSeconds: 45 }],

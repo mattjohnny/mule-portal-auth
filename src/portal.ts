@@ -20,15 +20,16 @@ export class PortalError extends Error {
   unavailable: boolean;
   // Whole seconds the Portal asked callers to wait: its delta-seconds
   // `Retry-After` on a 429/503 context lookup or sign-in redemption, clamped
-  // to 1..300. Absent when
-  // the Portal sent none (or an HTTP-date / malformed value).
+  // to 1..300. Absent when the Portal sent none (or an HTTP-date / malformed
+  // value).
   declare retryAfterSeconds?: number;
   // Which check rejected a Portal response, by field and position only (for
   // example "people[3].email"). Never carries a value from the response.
   declare detail?: string;
   // HTTP status of the Portal's non-2xx answer to a sign-in redemption
   // (`signInWithPortalToken`), for example 429 for a throttled sign-in versus
-  // 401/404 for a bad or expired link. Absent on every other error: transport
+  // 401/404 for a bad or expired link. A 401 can also mean the Portal rejected
+  // this app's own service credential, so it does not prove the caller's fault. Absent on every other error: transport
   // failures, local configuration, a 2xx response that failed validation, and
   // every non-redemption call. Deliberately not named `status`: Express and
   // http-errors read `err.status` as the response code to send.

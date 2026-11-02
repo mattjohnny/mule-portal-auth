@@ -247,19 +247,26 @@ Sessions without a handle keep `sessionTtlMs` (default 8 h). When a context
 lookup gets a `429` or `503` with a whole-seconds `Retry-After`, `requireAuth`
 and `requireAdmin` send it on their `503`, clamped to 1–300 seconds. Any other
 value, or none, gives 5. A `429` is still not an outage, and the connector never
-retries. When the Portal refuses a sign-in redemption (`signInWithPortalToken`)
-with a non-2xx status, the thrown `PortalError` carries that status as
-`portalStatus`, and on a `429` or `503` its whole-seconds `Retry-After` as
-`retryAfterSeconds` (clamped to 1–300). A `429` therefore reads
-`portalStatus === 429` while a bad, expired or replayed link reads `401`, `404`
-or similar; the message, `signedOut` and `unavailable` are the same as before,
-so a `429` is still not an outage. `portalStatus` is absent when no Portal status
-was received (transport failure, local configuration, or a `2xx` that failed
-validation) and on every other Portal call. It is not named `status` because
-Express reads `err.status` as the response code. A refused `readAppDirectory()`
-still fails as a whole. Its
+retries. A refused `readAppDirectory()` still fails as a whole. Its
 `PortalError.detail` names only the failed check and its position, such as
 `people[3].email` or `syncedAt skew`, so it is safe to log.
+
+When the Portal refuses a sign-in redemption (`signInWithPortalToken`) with a
+non-2xx status, the thrown `PortalError` carries that status as `portalStatus`,
+and on a `429` or `503` its whole-seconds `Retry-After` as `retryAfterSeconds`
+(clamped to 1–300). A throttled sign-in reads `portalStatus === 429`; a bad,
+expired or replayed link reads `401`, `404` or similar. A `401` can also mean
+the Portal rejected this app's own service credential, so do not treat it as
+proof the caller is at fault. The message, `signedOut` and `unavailable` are the
+same as before for every status, so a `429` is still not an outage and must not
+open offline-admin access. The Portal's limit is per app, so anyone can induce a
+`429` by flooding forged tokens: an app that stops counting `429` against a
+per-caller failure gate needs another per-caller bound. `retryAfterSeconds` is
+clamped and safe to show the person; the connector never retries on it.
+`portalStatus` is absent when no Portal status was received (transport failure,
+local configuration, or a `2xx` that failed validation) and on every other
+Portal call. It is not named `status` because Express reads `err.status` as the
+response code.
 
 `readAppDirectory({ include_non_mule: true })` returns `PortalAppDirectory`:
 `syncedAt`, canonical `locations` (including required boolean `is_mule`), and
