@@ -4,9 +4,11 @@ export declare class PortalError extends Error {
     unavailable: boolean;
     retryAfterSeconds?: number;
     detail?: string;
+    portalStatus?: number;
     constructor(message: string, signedOut?: boolean, unavailable?: boolean, extra?: {
         retryAfterSeconds?: number;
         detail?: string;
+        portalStatus?: number;
     });
 }
 export declare class PortalCredentialError extends PortalError {

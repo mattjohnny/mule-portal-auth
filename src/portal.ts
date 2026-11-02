@@ -19,17 +19,26 @@ export class PortalError extends Error {
   signedOut: boolean;
   unavailable: boolean;
   // Whole seconds the Portal asked callers to wait: its delta-seconds
-  // `Retry-After` on a 429/503 context lookup, clamped to 1..300. Absent when
-  // the Portal sent none (or an HTTP-date / malformed value).
+  // `Retry-After` on a 429/503 context lookup or sign-in redemption, clamped
+  // to 1..300. Absent when the Portal sent none (or an HTTP-date / malformed
+  // value).
   declare retryAfterSeconds?: number;
   // Which check rejected a Portal response, by field and position only (for
   // example "people[3].email"). Never carries a value from the response.
   declare detail?: string;
+  // HTTP status of the Portal's non-2xx answer to a sign-in redemption
+  // (`signInWithPortalToken`), for example 429 for a throttled sign-in versus
+  // 401/404 for a bad or expired link. A 401 can also mean the Portal rejected
+  // this app's own service credential, so it does not prove the caller's fault. Absent on every other error: transport
+  // failures, local configuration, a 2xx response that failed validation, and
+  // every non-redemption call. Deliberately not named `status`: Express and
+  // http-errors read `err.status` as the response code to send.
+  declare portalStatus?: number;
   constructor(
     message: string,
     signedOut = false,
     unavailable = false,
-    extra: { retryAfterSeconds?: number; detail?: string } = {}
+    extra: { retryAfterSeconds?: number; detail?: string; portalStatus?: number } = {}
   ) {
     super(message);
     this.name = "PortalError";
@@ -37,6 +46,7 @@ export class PortalError extends Error {
     this.unavailable = unavailable;
     if (extra.retryAfterSeconds !== undefined) this.retryAfterSeconds = extra.retryAfterSeconds;
     if (extra.detail !== undefined) this.detail = extra.detail;
+    if (extra.portalStatus !== undefined) this.portalStatus = extra.portalStatus;
   }
 }
 
@@ -506,17 +516,23 @@ export async function redeemSso(
     }
     if (resp.status === 403) {
       await discardResponse(resp);
-      throw new PortalError("That account has been disabled.", true);
+      throw new PortalError("That account has been disabled.", true, false, { portalStatus: 403 });
     }
     if (!resp.ok) {
       const unavailable = unavailableForStatus(resp.status);
+      // Read the header before the body is released. The status and back-off
+      // are exposed so a caller can tell a throttled sign-in (429) from a bad
+      // link; the message, signedOut and unavailable are unchanged, so a 429
+      // is still not an outage and nothing here retries.
+      const retryAfterSeconds = portalRetryAfterSeconds(resp);
       await discardResponse(resp);
       throw new PortalError(
         unavailable
           ? "The Portal is temporarily unavailable. Please try again."
           : "That sign-in link is invalid or has expired.",
         false,
-        unavailable
+        unavailable,
+        { retryAfterSeconds, portalStatus: resp.status }
       );
     }
 
