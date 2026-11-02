@@ -255,20 +255,20 @@ retries. A refused `readAppDirectory()` still fails as a whole. Its
 
 Since v0.3.1, when the Portal refuses a sign-in redemption
 (`signInWithPortalToken`) with a non-2xx status, the thrown `PortalError`
-carries that status as `portalStatus`, and on a `429` or `503` its
-whole-seconds `Retry-After` as `retryAfterSeconds` (clamped to 1–300). A throttled sign-in reads `portalStatus === 429`; a bad,
-expired or replayed link reads `401`, `404` or similar. A `401` can also mean
-the Portal rejected this app's own service credential, so do not treat it as
-proof the caller is at fault. The message, `signedOut` and `unavailable` are the
-same as before for every status, so a `429` is still not an outage and must not
-open offline-admin access. The Portal's limit is per app, so anyone can induce a
-`429` by flooding forged tokens: an app that stops counting `429` against a
-per-caller failure gate needs another per-caller bound. `retryAfterSeconds` is
-clamped and safe to show the person; the connector never retries on it.
-`portalStatus` is absent when no Portal status was received (transport failure,
-local configuration, or a `2xx` that failed validation) and on every other
-Portal call. It is not named `status` because Express reads `err.status` as the
-response code.
+carries that status as `portalStatus`, and on a `429` or `503` its whole-seconds
+`Retry-After` as `retryAfterSeconds` (clamped to 1–300). A throttled sign-in
+reads `portalStatus === 429`; a bad, expired or replayed link reads `401`, `404`
+or similar. A `401` can also mean the Portal rejected this app's own service
+credential, so do not treat it as proof the caller is at fault. The message,
+`signedOut` and `unavailable` are the same as before for every status, so a
+`429` is still not an outage and must not open offline-admin access. The
+Portal's limit is per app, so anyone can induce a `429` by flooding forged
+tokens: an app that stops counting `429` against a per-caller failure gate needs
+another per-caller bound. `retryAfterSeconds` is clamped and safe to show the
+person; the connector never retries on it. `portalStatus` is absent when no
+Portal status was received (transport failure, local configuration, or a `2xx`
+that failed validation) and on every other Portal call. It is not named `status`
+because Express reads `err.status` as the response code.
 
 `readAppDirectory({ include_non_mule: true })` returns `PortalAppDirectory`:
 `syncedAt`, canonical `locations` (including required boolean `is_mule`), and
