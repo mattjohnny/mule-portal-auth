@@ -21,20 +21,22 @@ Pin it by git URL + tag/commit in the app's `package.json`:
 
 ```jsonc
 "dependencies": {
-  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.3.0"
+  "@mule/portal-auth": "github:mattjohnny/mule-portal-auth#v0.3.1"
 }
 ```
 
 `better-sqlite3`, `express`, and (optionally) `google-auth-library` are peer
 dependencies — the app already has them.
 
-### v0.3.0 release gates
+### v0.3.1 release gates
 
-The `v0.3.0` tag is created only after sections 2–4 of
-[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md) pass
-on the merged release commit: the production data check, the release-commit
-checks and the cross-repo proofs. No app pins `#v0.3.0` before that tag
-exists. Each app then adopts it by following section 5 of that file.
+The `v0.3.1` tag is created only after section 3 of
+[`docs/release/v0.3.1-preflight.md`](docs/release/v0.3.1-preflight.md) passes
+on the merged release commit. No app pins `#v0.3.1` before that tag exists.
+Each app then adopts it by following section 5 of that file. v0.3.1 adds
+`portalStatus` and `retryAfterSeconds` to sign-in redemption errors (SEC-13,
+PR #15); see that file's release notes. The v0.3.0 gates are in
+[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md).
 
 ## Use
 
@@ -251,10 +253,10 @@ retries. A refused `readAppDirectory()` still fails as a whole. Its
 `PortalError.detail` names only the failed check and its position, such as
 `people[3].email` or `syncedAt skew`, so it is safe to log.
 
-When the Portal refuses a sign-in redemption (`signInWithPortalToken`) with a
-non-2xx status, the thrown `PortalError` carries that status as `portalStatus`,
-and on a `429` or `503` its whole-seconds `Retry-After` as `retryAfterSeconds`
-(clamped to 1–300). A throttled sign-in reads `portalStatus === 429`; a bad,
+Since v0.3.1, when the Portal refuses a sign-in redemption
+(`signInWithPortalToken`) with a non-2xx status, the thrown `PortalError`
+carries that status as `portalStatus`, and on a `429` or `503` its
+whole-seconds `Retry-After` as `retryAfterSeconds` (clamped to 1–300). A throttled sign-in reads `portalStatus === 429`; a bad,
 expired or replayed link reads `401`, `404` or similar. A `401` can also mean
 the Portal rejected this app's own service credential, so do not treat it as
 proof the caller is at fault. The message, `signedOut` and `unavailable` are the
@@ -293,9 +295,9 @@ names two Portal commits that were never published and a `dist/index.js`
 fingerprint that does not match the file merged at `ad09394`. Its
 [erratum](docs/evidence/authority-2026-10-25/ERRATUM-2026-10-26.md) gives the
 corrections and the re-verification on the merged bytes.
-The package version is `0.3.0`. The `v0.3.0` tag and consumer pins remain
-separate gates that follow
-[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md).
+Request authority was released in `v0.3.0`, following
+[`docs/release/v0.3.0-preflight.md`](docs/release/v0.3.0-preflight.md). The
+package version is now `0.3.1`.
 
 An async store shared by multiple service instances can additionally implement:
 
