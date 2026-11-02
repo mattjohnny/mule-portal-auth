@@ -17,6 +17,8 @@ export class PortalError extends Error {
             this.retryAfterSeconds = extra.retryAfterSeconds;
         if (extra.detail !== undefined)
             this.detail = extra.detail;
+        if (extra.portalStatus !== undefined)
+            this.portalStatus = extra.portalStatus;
     }
 }
 // Credential discovery is local service configuration/IAM, not Portal
@@ -416,14 +418,19 @@ export async function redeemSso(opts, ssoToken) {
         }
         if (resp.status === 403) {
             await discardResponse(resp);
-            throw new PortalError("That account has been disabled.", true);
+            throw new PortalError("That account has been disabled.", true, false, { portalStatus: 403 });
         }
         if (!resp.ok) {
             const unavailable = unavailableForStatus(resp.status);
+            // Read the header before the body is released. The status and back-off
+            // are exposed so a caller can tell a throttled sign-in (429) from a bad
+            // link; the message, signedOut and unavailable are unchanged, so a 429
+            // is still not an outage and nothing here retries.
+            const retryAfterSeconds = portalRetryAfterSeconds(resp);
             await discardResponse(resp);
             throw new PortalError(unavailable
                 ? "The Portal is temporarily unavailable. Please try again."
-                : "That sign-in link is invalid or has expired.", false, unavailable);
+                : "That sign-in link is invalid or has expired.", false, unavailable, { retryAfterSeconds, portalStatus: resp.status });
         }
         let body;
         try {
